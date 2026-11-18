@@ -25,6 +25,7 @@ import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { Modal } from '@/components/ui/Modal';
 import { formatPeso, formatPesoCompact } from '@/lib/email/format';
 import { formatRecordedWork } from '@/lib/payroll/display';
+import { chunkBy } from '@/lib/payroll/chunkBy';
 import { AttendanceMatrix } from '@/components/payroll/AttendanceMatrix';
 import { getManilaClock } from '@/lib/reminders/scheduler';
 
@@ -63,10 +64,6 @@ export default function PayrollPage() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   const formatPHP = formatPesoCompact;
-
-  /** Chunks an array into groups of `size` (used for 3×3 = 9 slips per A4 page). */
-  const chunkBy = <T>(arr: T[], size: number): T[][] =>
-    arr.reduce<T[][]>((acc, _, i) => (i % size === 0 ? [...acc, arr.slice(i, i + size)] : acc), []);
 
   /**
    * Resolves the project site(s) associated with a payroll record using:
@@ -695,7 +692,7 @@ export default function PayrollPage() {
           </div>
 
           <div className="mt-3 text-[10px] text-ink-muted text-center">
-            Each A4 page holds up to 9 payroll slips (3×3). Use your browser's "Save as PDF" in the print dialog.
+            Each A4 page holds up to 9 payroll slips (3×3). Use Save as PDF in your browser print dialog.
           </div>
         </div>
       </Modal>
