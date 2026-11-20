@@ -111,6 +111,8 @@ export interface Expense {
   ai_confirmed: boolean;
   created_by: string;
   created_at: string;
+  /** Soft delete timestamp. NULL means the expense is active. */
+  removed_at?: string | null;
 }
 
 export type AdvanceStatus = 'active' | 'partially_deducted' | 'fully_deducted' | 'cancelled';

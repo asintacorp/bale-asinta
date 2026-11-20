@@ -66,6 +66,7 @@ export default function ExpensesPage() {
     projects,
     createExpense,
     updateExpense,
+    deleteExpense,
     createAdvance,
     workers,
   } = useDataStore();
@@ -146,6 +147,11 @@ export default function ExpensesPage() {
   const [contextWarnings, setContextWarnings] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const expenseSubmitLock = React.useRef(false);
+
+  // Expense soft-delete confirmation state
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -859,6 +865,30 @@ export default function ExpensesPage() {
     });
   };
 
+  const handleDeleteExpense = async (expense: Expense) => {
+    setExpenseToDelete(expense);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  const handleConfirmDeleteExpense = async () => {
+    if (!expenseToDelete) return;
+    setIsDeleting(true);
+    try {
+      const ok = await deleteExpense(expenseToDelete.id);
+      if (ok) {
+        showToast('success', 'Expense removed from ledger.');
+      } else {
+        showToast('error', 'Could not remove the expense. Try again.');
+      }
+    } catch {
+      showToast('error', 'Could not remove the expense. Try again.');
+    } finally {
+      setIsDeleting(false);
+      setExpenseToDelete(null);
+      setIsDeleteConfirmOpen(false);
+    }
+  };
+
   return (
     <AppShell requireFounder={true}>
       <div className="space-y-6">
@@ -1145,6 +1175,13 @@ export default function ExpensesPage() {
                     </div>
 
                     <Button variant="secondary" size="sm" onClick={() => setSelectedExpense(exp)}>View details</Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => handleDeleteExpense(exp)}
+                    >
+                      Delete
+                    </Button>
                     {exp.receipt_url ? (
                       <Button
                         variant="secondary"
@@ -1676,6 +1713,19 @@ export default function ExpensesPage() {
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog
+        isOpen={isDeleteConfirmOpen}
+        title="Remove expense from ledger?"
+        message={`Mark “${expenseToDelete?.description}” as removed? It will no longer appear in the expense list, but the record is kept for audit purposes.`}
+        confirmLabel="Remove expense"
+        cancelLabel="Cancel"
+        destructive
+        isPending={isDeleting}
+        onCancel={() => setIsDeleteConfirmOpen(false)}
+        onConfirm={handleConfirmDeleteExpense}
+      />
+
     </AppShell>
   );
 }
