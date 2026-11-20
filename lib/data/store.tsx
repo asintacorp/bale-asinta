@@ -291,7 +291,11 @@ export const DataStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const results = await Promise.all([
           supabase.rpc('visible_projects').order('created_at', { ascending: false }),
           supabase.from('invoices').select('*').order('created_at', { ascending: false }),
-          supabase.from('expenses').select('*').order('created_at', { ascending: false }),
+          supabase
+            .from('expenses')
+            .select('*')
+            .is('removed_at', null)
+            .order('created_at', { ascending: false }),
           supabase.from('workers').select('*').order('created_at', { ascending: true }),
           supabase.from('clients').select('*').order('created_at', { ascending: true }),
           supabase.from('advances').select('*').order('created_at', { ascending: false }),
@@ -879,18 +883,26 @@ export const DataStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const deleteExpense = async (id: string): Promise<boolean> => {
     const before = expenses.find((e) => e.id === id) ?? null;
+    const now = new Date().toISOString();
     const ok = await runMutation('Delete expense', async (db) => {
-      const { error } = await db.from('expenses').delete().eq('id', id);
+      const { error } = await db
+        .from('expenses')
+        .update({ removed_at: now })
+        .eq('id', id)
+        .is('removed_at', null)
+        .select();
       return { data: !error, error };
     });
     if (ok) {
-      setExpenses((prev) => prev.filter((e) => e.id !== id));
+      setExpenses((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, removed_at: now } : e))
+      );
       await recordAudit({
         action: 'delete',
         table: 'expenses',
         recordId: id,
         before: before as unknown as Record<string, unknown> | null,
-        after: null,
+        after: { removed_at: now },
       });
       return true;
     }
