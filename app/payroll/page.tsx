@@ -275,8 +275,14 @@ export default function PayrollPage() {
   const unsitedVouchers = payroll.filter(
     (p) => !p.project_id && p.period_start === periodStart && p.period_end === periodEnd
   );
-  const includeUnsited = postIncludeUnsited && unsitedVouchers.length > 0;
-  const postScopeVouchers = includeUnsited ? [...postSiteVouchers, ...unsitedVouchers] : postSiteVouchers;
+  // Only paid vouchers are money. Counting approved or draft ones here used to
+  // make the opt-in look broken: ticking it changed nothing, because those
+  // vouchers are not a cost yet.
+  const unsitedPaidVouchers = unsitedVouchers.filter((p) => p.status === 'paid');
+  const includeUnsited = postIncludeUnsited && unsitedPaidVouchers.length > 0;
+  const postScopeVouchers = includeUnsited
+    ? [...postSiteVouchers, ...unsitedPaidVouchers]
+    : postSiteVouchers;
   const postPaidVouchers = postScopeVouchers.filter((p) => p.status === 'paid');
   const postGross = postPaidVouchers.reduce((sum, p) => sum + Number(p.gross_pay || 0), 0);
   const postBale = postPaidVouchers.reduce((sum, p) => sum + Number(p.bale_deduction || 0), 0);
@@ -847,7 +853,7 @@ export default function PayrollPage() {
             </p>
           </div>
 
-          {postSiteId !== 'all' && unsitedVouchers.length > 0 && (
+          {postSiteId !== 'all' && unsitedPaidVouchers.length > 0 && (
             <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-surface-border bg-white p-3">
               <input
                 type="checkbox"
@@ -858,8 +864,8 @@ export default function PayrollPage() {
               />
               <span className="text-xs text-ink-secondary">
                 <span className="block font-semibold text-navy">
-                  Include {unsitedVouchers.length} voucher{unsitedVouchers.length === 1 ? '' : 's'} recorded before
-                  sites were tracked
+                  Include {unsitedPaidVouchers.length} paid voucher{unsitedPaidVouchers.length === 1 ? '' : 's'}{' '}
+                  recorded before sites were tracked
                 </span>
                 Only switch this on if this period&apos;s unsited vouchers belong to {postSiteName || 'this site'} — the
                 app cannot know which site they were for.
@@ -903,7 +909,13 @@ export default function PayrollPage() {
 
           {postSiteId !== 'all' && postPaidVouchers.length === 0 && (
             <p role="status" className="rounded-xl border border-status-warning/20 bg-status-warning-bg p-3 text-xs text-status-warning">
-              No paid vouchers in this scope yet. Drafts and approved vouchers are not a cost; mark them paid first.
+              {unsitedPaidVouchers.length > 0
+                ? unsitedPaidVouchers.length === 1
+                  ? '1 paid voucher of this period was recorded before sites were tracked and is not in scope yet — tick the box above to include it.'
+                  : `${unsitedPaidVouchers.length} paid vouchers of this period were recorded before sites were tracked and are not in scope yet — tick the box above to include them.`
+                : unsitedVouchers.length > 0
+                  ? `This period has ${unsitedVouchers.length} voucher${unsitedVouchers.length === 1 ? '' : 's'} recorded before sites were tracked, but none are paid yet — approved and draft vouchers are not a cost.`
+                  : 'No paid vouchers in this scope yet. Drafts and approved vouchers are not a cost; mark them paid first.'}
             </p>
           )}
 
