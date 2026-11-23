@@ -446,12 +446,8 @@ export default function ProjectDetailPage() {
                       </div>
                       <div className="text-right">
                         <div className="text-sm font-bold text-navy">{formatPHP(exp.amount)}</div>
-                        <Badge
-                          variant={exp.source === 'payroll' || exp.source === 'advance' ? 'info' : 'navy'}
-                          size="sm"
-                          className="mt-1"
-                        >
-                          {exp.source === 'payroll' ? 'Payroll' : exp.source === 'advance' ? 'Advance' : 'Confirmed'}
+                        <Badge variant="navy" size="sm" className="mt-1">
+                          Confirmed
                         </Badge>
                       </div>
                     </div>
