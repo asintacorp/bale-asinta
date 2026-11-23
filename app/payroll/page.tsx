@@ -10,6 +10,7 @@ import {
   Printer,
   ShieldCheck,
   Check,
+  User,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { FilterSummary } from '@/components/ui/FilterSummary';
@@ -50,6 +51,9 @@ export default function PayrollPage() {
   // Modals
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [isPayslipModalOpen, setIsPayslipModalOpen] = useState(false);
+  const [isPrintAllModalOpen, setIsPrintAllModalOpen] = useState(false);
+  const [printDateRange, setPrintDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
+  const [printVouchers, setPrintVouchers] = useState<Payroll[]>([]);
   const [selectedPayroll, setSelectedPayroll] = useState<Payroll | null>(null);
 
   // Generate run state (defaults to the past 7 days through today)
@@ -61,6 +65,10 @@ export default function PayrollPage() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   const formatPHP = formatPesoCompact;
+
+  /** Chunks an array into groups of `size` (used for 3×3 = 9 slips per A4 page). */
+  const chunkBy = (arr: any[], size: number): any[][] =>
+    arr.reduce<any[][]>((acc, _, i) => (i % size === 0 ? [...acc, arr.slice(i, i + size)] : acc), []);
 
   /**
    * Resolves the project site(s) associated with a payroll record using:
@@ -185,7 +193,21 @@ export default function PayrollPage() {
           eyebrow="Workforce & pay"
           title="Payroll"
           description="Review attendance-based vouchers, Bale deductions and worker payslips."
-          action={<Button variant="primary" size="md" onClick={() => setIsGenerateModalOpen(true)} leftIcon={<Plus className="w-4 h-4" />}>New Payroll Run</Button>}
+          action={
+            <div className="flex gap-2">
+              <Button variant="primary" size="md" onClick={() => setIsGenerateModalOpen(true)} leftIcon={<Plus className="w-4 h-4" />}>
+                New Payroll Run
+              </Button>
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => setIsPrintAllModalOpen(true)}
+                leftIcon={<Printer className="w-4 h-4" />}
+              >
+                Print All Payslips
+              </Button>
+            </div>
+          }
         />
 
         <AttendanceMatrix start={periodStart} end={periodEnd} site={generateProjectId} setStart={setPeriodStart} setEnd={setPeriodEnd} setSite={setGenerateProjectId} projects={projects} />
@@ -608,6 +630,152 @@ export default function PayrollPage() {
           );
         })()}
       </Modal>
+
+      {/* PRINT ALL PAYROLL SLIPS (A4 3×3) MODAL */}
+      <Modal
+        isOpen={isPrintAllModalOpen}
+        onClose={() => setIsPrintAllModalOpen(false)}
+        title="Print All Payroll Slips"
+        description="Select a date range, then print payslips 3×3 per A4 page"
+        maxWidth="2xl"
+      >
+        <div className="space-y-4">
+          <div className="rounded-xl border border-surface-border bg-surface-inset p-4">
+            <div className="grid gap-3 sm:grid-cols-2 items-end">
+              <div>
+                <label className="block text-xs font-medium text-ink-secondary mb-1">Date from</label>
+                <Input
+                  type="date"
+                  value={printDateRange.start}
+                  onChange={(e) => setPrintDateRange({ ...printDateRange, start: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-ink-secondary mb-1">Date to</label>
+                <Input
+                  type="date"
+                  value={printDateRange.end}
+                  onChange={(e) => setPrintDateRange({ ...printDateRange, end: e.target.value })}
+                />
+              </div>
+              <div className="col-span-2 flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (!printDateRange.start || !printDateRange.end) {
+                      showToast('error', 'Please select both start and end dates.');
+                      return;
+                    }
+                    const filtered = payroll.filter(
+                      (p) => p.period_start >= printDateRange.start && p.period_end <= printDateRange.end
+                    );
+                    setPrintVouchers(filtered);
+                    setIsPrintAllModalOpen(false);
+                  }}
+                >
+                  Preview slips
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    if (!printDateRange.start || !printDateRange.end) {
+                      showToast('error', 'Please select both start and end dates.');
+                      return;
+                    }
+                    const filtered = payroll.filter(
+                      (p) => p.period_start >= printDateRange.start && p.period_end <= printDateRange.end
+                    );
+                    setPrintVouchers(filtered);
+                    setIsPrintAllModalOpen(false);
+                    setTimeout(() => window.print(), 100);
+                  }}
+                >
+                  Print to PDF
+                </Button>
+              </div>
+            </div>
+            {printVouchers.length > 0 && (
+              <div className="mt-3 text-[10px] text-ink-muted">
+                {printVouchers.length} payroll slip{printVouchers.length !== 1 ? 's' : ''} will be printed
+              </div>
+            )}
+          </div>
+
+          {/* A4 pages — 3×3 grid per page */}
+          <div className="print-payroll-slips">
+            {chunkBy(printVouchers, 9).map((page, pageIndex) => (
+              <div key={pageIndex} className="a4-page">
+                <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                  {page.map((pay) => {
+                    const worker = workers.find((w) => w.id === pay.worker_id);
+                    return (
+                      <div key={pay.id} className="payslip-cell border rounded-lg p-2 sm:p-3">
+                        <div className="flex items-center justify-center h-7 sm:h-8 mb-1 sm:mb-2">
+                          <User className="w-5 sm:w-6 h-5 sm:h-6 text-ink-secondary" />
+                        </div>
+                        <div className="text-xs sm:text-sm font-bold text-navy leading-tight">
+                          {worker?.name || 'Worker'}
+                        </div>
+                        <div className="text-[10px] sm:text-xs text-ink-secondary leading-none">
+                          {pay.period_start} → {pay.period_end}
+                        </div>
+                        <div className="mt-1.5 sm:mt-2 space-y-0.5">
+                          <div className="flex justify-between text-[9px] sm:text-xs">
+                            <span className="text-ink-secondary">Gross</span>
+                            <span className="font-bold text-navy">{formatPeso(pay.gross_pay)}</span>
+                          </div>
+                          {pay.bale_deduction > 0 && (
+                            <div className="flex justify-between text-[9px] sm:text-xs text-status-danger">
+                              <span className="text-ink-secondary">Bale</span>
+                              <span className="font-bold">-{formatPeso(pay.bale_deduction)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between text-[9px] sm:text-xs font-bold border-t border-surface-border pt-0.5">
+                            <span className="text-ink-secondary">Net Pay</span>
+                            <span className="text-navy">{formatPeso(pay.net_pay)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {printVouchers.length > 0 && (
+            <div className="mt-3 text-[10px] text-ink-muted text-center">
+              Each A4 page holds up to 9 payroll slips (3×3). Use your browser print dialog and select Save as PDF.
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      <style>{`
+        @media print {
+          @page { size: A4; margin: 8mm; }
+          .no-print, [data-modal-backdrop], .fixed.inset-0, .bg-black\\/50, .bg-slate-900\\/50,
+          .print-hide {
+            display: none !important;
+          }
+          .a4-page {
+            width: 210mm;
+            min-height: 297mm;
+            page-break-after: always;
+            padding: 6mm;
+            box-sizing: border-box;
+          }
+          .a4-page:last-child { page-break-after: auto; }
+          .payslip-cell {
+            break-inside: avoid;
+            page-break-inside: avoid;
+            height: calc((297mm - 12mm) / 3);
+            box-sizing: border-box;
+          }
+        }
+      `}</style>
 
     </AppShell>
   );
