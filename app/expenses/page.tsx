@@ -1044,8 +1044,7 @@ export default function ExpensesPage() {
         <WorkspaceFilters
           title="Find an expense"
           summary={<FilterSummary count={filteredExpenses.length} itemName="expense" active={Boolean(searchQuery) || categoryFilter !== 'all' || projectFilter !== 'all'} onClear={() => { setSearchQuery(''); setCategoryFilter('all'); setProjectFilter('all'); }} />}
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          search={
             <Input
               label="Search expenses"
               placeholder="Search expense description, notes, supplier..."
@@ -1053,36 +1052,46 @@ export default function ExpensesPage() {
               onChange={(e) => setSearchQuery(e.target.value)}
               leftIcon={<Search className="w-4 h-4" />}
             />
+          }
+          filters={
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+              <div className="w-full sm:w-56">
+                <Select
+                  label="Category"
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  options={[
+                    { label: 'All Categories', value: 'all' },
+                    { label: 'Materials', value: 'materials' },
+                    { label: 'Labor', value: 'labor' },
+                    { label: 'Equipment', value: 'equipment' },
+                    { label: 'Permits', value: 'permits' },
+                    { label: 'Transportation', value: 'transportation' },
+                    { label: 'Other', value: 'other' },
+                  ]}
+                />
+              </div>
 
-            <Select
-              label="Category"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              options={[
-                { label: 'All Categories', value: 'all' },
-                { label: 'Materials', value: 'materials' },
-                { label: 'Labor', value: 'labor' },
-                { label: 'Equipment', value: 'equipment' },
-                { label: 'Permits', value: 'permits' },
-                { label: 'Transportation', value: 'transportation' },
-                { label: 'Other', value: 'other' },
-              ]}
-            />
-
-            <Select
-              label="Project"
-              value={projectFilter}
-              onChange={(e) => setProjectFilter(e.target.value)}
-            >
-              <option value="all">All Project Sites</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </WorkspaceFilters>
+              <div className="w-full sm:w-64">
+                <Select
+                  label="Project"
+                  value={projectFilter}
+                  onChange={(e) => setProjectFilter(e.target.value)}
+                >
+                  <option value="all">All Project Sites</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+          }
+          activeFilterCount={(categoryFilter !== 'all' ? 1 : 0) + (projectFilter !== 'all' ? 1 : 0)}
+          onClearFilters={() => { setCategoryFilter('all'); setProjectFilter('all'); }}
+          resultCount={filteredExpenses.length}
+        />
 
         {/* Expenses List */}
         <div data-page-guide="list" className="bg-white rounded-xl border border-surface-border overflow-hidden">

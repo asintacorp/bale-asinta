@@ -254,16 +254,25 @@ export default function SMSPage() {
           </div>
         </div>
 
-        <WorkspaceFilters title="Find messages" summary={<div className="flex flex-wrap items-center justify-between gap-2 pt-1"><span>{invalidDates ? 'End date must be on or after start date.' : searchSettling ? 'Searching…' : history.loading && !history.items.length ? 'Loading history…' : history.error && !history.items.length ? 'History unavailable' : `${history.items.length} loaded${history.hasMore ? ' · more available' : ''}`}</span>{hasFilters && <button type="button" onClick={clearFilters} className="font-semibold text-navy underline underline-offset-2">Clear filters</button>}</div>}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <WorkspaceFilters
+          title="Find messages"
+          summary={<div className="flex flex-wrap items-center justify-between gap-2 pt-1"><span>{invalidDates ? 'End date must be on or after start date.' : searchSettling ? 'Searching…' : history.loading && !history.items.length ? 'Loading history…' : history.error && !history.items.length ? 'History unavailable' : `${history.items.length} loaded${history.hasMore ? ' · more available' : ''}`}</span>{hasFilters && <button type="button" onClick={clearFilters} className="font-semibold text-navy underline underline-offset-2">Clear filters</button>}</div>}
+          search={
             <Input label="Search messages" placeholder="Recipient, phone, message or invoice" maxLength={200} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} leftIcon={<Search className="w-4 h-4" />} />
-            <Select label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              <option value="all">All statuses</option><option value="delivered">Delivered</option><option value="sent">Sent / accepted</option><option value="pending">Pending / unconfirmed</option><option value="failed">Failed (not simulated)</option><option value="simulated">Simulation mode</option>
-            </Select>
-            <Input label="From date (Manila)" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-            <Input label="To date (Manila)" type="date" aria-invalid={invalidDates} aria-describedby={invalidDates ? "sms-date-error" : undefined} value={toDate} onChange={(e) => setToDate(e.target.value)} />
-          </div>
-        </WorkspaceFilters>
+          }
+          filters={
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Select label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="all">All statuses</option><option value="delivered">Delivered</option><option value="sent">Sent / accepted</option><option value="pending">Pending / unconfirmed</option><option value="failed">Failed (not simulated)</option><option value="simulated">Simulation mode</option>
+              </Select>
+              <Input label="From date (Manila)" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+              <Input label="To date (Manila)" type="date" aria-invalid={invalidDates} aria-describedby={invalidDates ? "sms-date-error" : undefined} value={toDate} onChange={(e) => setToDate(e.target.value)} />
+            </div>
+          }
+          activeFilterCount={(statusFilter !== 'all' ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0)}
+          onClearFilters={() => { setStatusFilter('all'); setFromDate(''); setToDate(''); }}
+          resultCount={history.items.length}
+        />
 
         <div data-page-guide="list" className="bg-white rounded-xl border border-surface-border overflow-hidden">
           <div className="p-4 border-b border-surface-border/60 flex flex-wrap justify-between items-center gap-3">

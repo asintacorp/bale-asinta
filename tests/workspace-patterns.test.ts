@@ -19,10 +19,26 @@ describe('shared workspace patterns', () => {
   it('labels the filter region and includes its feedback', () => {
     const html = renderToStaticMarkup(React.createElement(WorkspaceFilters, {
       title: 'Find a project', summary: React.createElement('p', null, '2 results'),
-      children: React.createElement('input', { 'aria-label': 'Search projects' }),
+      search: React.createElement('input', { 'aria-label': 'Search projects' }),
+      filters: React.createElement('select', { 'aria-label': 'Status' }, React.createElement('option', null, 'All')),
+      activeFilterCount: 1, resultCount: 2,
     }));
     expect(html).toContain('aria-label="Find a project"');
     expect(html).toContain('aria-label="Search projects"');
+    expect(html).toContain('aria-label="Status"');
     expect(html).toContain('2 results');
+  });
+
+  it('keeps search inline and exposes the remaining filters through a labelled sheet button', () => {
+    const html = renderToStaticMarkup(React.createElement(WorkspaceFilters, {
+      title: 'Find a project', summary: React.createElement('p', null, '2 results'),
+      search: React.createElement('input', { 'aria-label': 'Search projects' }),
+      filters: React.createElement('select', { 'aria-label': 'Status' }),
+      activeFilterCount: 2, resultCount: 2,
+    }));
+    expect(html).toContain('aria-haspopup="dialog"');
+    expect(html).toContain('Filters');
+    // The active-filter count is announced, not just drawn as a badge.
+    expect(html).toContain('2 filters applied');
   });
 });

@@ -294,48 +294,54 @@ export default function PayrollPage() {
 
         <p className="text-xs leading-relaxed text-ink-secondary">Summary reflects the current filters and includes vouchers of all shown statuses. Deductions on draft or approved vouchers are not necessarily collected.</p>
 
-        <WorkspaceFilters title="Find a payroll voucher" summary={<FilterSummary count={filteredPayroll.length} itemName="payroll" active={Boolean(searchQuery) || projectFilter !== 'all' || statusFilter !== 'all'} onClear={() => { setSearchQuery(''); setProjectFilter('all'); setStatusFilter('all'); }} />}>
-          <div className="flex flex-col sm:flex-row flex-wrap sm:items-end gap-3">
-            <div className="w-full sm:w-80">
-              <Input
-                label="Search payroll"
-                placeholder="Search worker, position, or project..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                leftIcon={<Search className="w-4 h-4" />}
-              />
-            </div>
+        <WorkspaceFilters
+          title="Find a payroll voucher"
+          summary={<FilterSummary count={filteredPayroll.length} itemName="payroll" active={Boolean(searchQuery) || projectFilter !== 'all' || statusFilter !== 'all'} onClear={() => { setSearchQuery(''); setProjectFilter('all'); setStatusFilter('all'); }} />}
+          search={
+            <Input
+              label="Search payroll"
+              placeholder="Search worker, position, or project..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              leftIcon={<Search className="w-4 h-4" />}
+            />
+          }
+          filters={
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+              <div className="w-full sm:w-64">
+                <SearchableSelect
+                  label="Project"
+                  searchLabel="Search voucher project sites"
+                  value={projectFilter}
+                  onChange={(e) => setProjectFilter(e.target.value)}
+                  fixedOption={{ label: 'All Project Sites', value: 'all' }}
+                  options={projects.map((p) => ({
+                    label: `${p.name} (${p.location.split(',')[0]})`,
+                    value: p.id,
+                  }))}
+                />
+              </div>
 
-            <div className="w-full sm:w-64">
-              <SearchableSelect
-                label="Project"
-                searchLabel="Search voucher project sites"
-                value={projectFilter}
-                onChange={(e) => setProjectFilter(e.target.value)}
-                fixedOption={{ label: 'All Project Sites', value: 'all' }}
-                options={projects.map((p) => ({
-                  label: `${p.name} (${p.location.split(',')[0]})`,
-                  value: p.id,
-                }))}
-              />
+              <div className="w-full sm:w-48">
+                <Select
+                  label="Status"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  options={[
+                    { label: 'All Statuses', value: 'all' },
+                    { label: 'Draft', value: 'draft' },
+                    { label: 'Reviewed', value: 'reviewed' },
+                    { label: 'Approved', value: 'approved' },
+                    { label: 'Paid', value: 'paid' },
+                  ]}
+                />
+              </div>
             </div>
-
-            <div className="w-full sm:w-48">
-              <Select
-                label="Status"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                options={[
-                  { label: 'All Statuses', value: 'all' },
-                  { label: 'Draft', value: 'draft' },
-                  { label: 'Reviewed', value: 'reviewed' },
-                  { label: 'Approved', value: 'approved' },
-                  { label: 'Paid', value: 'paid' },
-                ]}
-              />
-            </div>
-          </div>
-        </WorkspaceFilters>
+          }
+          activeFilterCount={(projectFilter !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0)}
+          onClearFilters={() => { setProjectFilter('all'); setStatusFilter('all'); }}
+          resultCount={filteredPayroll.length}
+        />
 
         {/* Payroll Table */}
         <div data-page-guide="list" className="bg-white rounded-xl border border-surface-border overflow-hidden">

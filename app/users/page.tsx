@@ -367,9 +367,8 @@ export default function UsersPage() {
           </div>
         )}
 
-        <WorkspaceFilters title="Find team accounts" summary={<FilterSummary count={filteredUsers.length} itemName="account" active={Boolean(searchQuery) || roleFilter !== 'all'} onClear={() => { setSearchQuery(''); setRoleFilter('all'); }} />}>
-        <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-          <div className="w-full sm:w-80">
+        <WorkspaceFilters title="Find team accounts" summary={<FilterSummary count={filteredUsers.length} itemName="account" active={Boolean(searchQuery) || roleFilter !== 'all'} onClear={() => { setSearchQuery(''); setRoleFilter('all'); }} />}
+          search={
             <Input
               label="Search accounts"
               placeholder="Search team member name or email..."
@@ -377,23 +376,25 @@ export default function UsersPage() {
               onChange={(e) => setSearchQuery(e.target.value)}
               leftIcon={<Search className="w-4 h-4" />}
             />
-          </div>
-
-          <div className="w-full sm:w-48">
-            <Select
-              label="Role"
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              options={[
-                { label: 'All Roles', value: 'all' },
-                { label: 'Founders', value: 'founder' },
-                { label: 'Supervisors', value: 'supervisor' },
-              ]}
-            />
-          </div>
-        </div>
-
-        </WorkspaceFilters>
+          }
+          filters={
+            <div className="w-full sm:w-56">
+              <Select
+                label="Role"
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                options={[
+                  { label: 'All Roles', value: 'all' },
+                  { label: 'Founders', value: 'founder' },
+                  { label: 'Supervisors', value: 'supervisor' },
+                ]}
+              />
+            </div>
+          }
+          activeFilterCount={roleFilter !== 'all' ? 1 : 0}
+          onClearFilters={() => setRoleFilter('all')}
+          resultCount={filteredUsers.length}
+        />
 
         {/* Users Cards Grid */}
         <div data-page-guide="list" className="grid grid-cols-1 md:grid-cols-2 gap-4 auto-rows-fr">

@@ -169,19 +169,17 @@ export default function ProjectsPage() {
         <WorkspaceFilters
           title="Find a project"
           summary={<FilterSummary count={filteredProjects.length} itemName="project" active={Boolean(searchQuery) || statusFilter !== 'all'} onClear={() => { setSearchQuery(''); setStatusFilter('all'); }} />}
-        >
-          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-            <div className="w-full sm:w-72">
-              <Input
-                label="Search projects"
-                placeholder="Search projects or locations..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                leftIcon={<Search className="w-4 h-4" />}
-              />
-            </div>
-
-            <div className="w-full sm:w-48">
+          search={
+            <Input
+              label="Search projects"
+              placeholder="Search projects or locations..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              leftIcon={<Search className="w-4 h-4" />}
+            />
+          }
+          filters={
+            <div className="w-full sm:w-56">
               <Select
                 label="Status"
                 value={statusFilter}
@@ -195,8 +193,11 @@ export default function ProjectsPage() {
                 ]}
               />
             </div>
-          </div>
-        </WorkspaceFilters>
+          }
+          activeFilterCount={statusFilter !== 'all' ? 1 : 0}
+          onClearFilters={() => setStatusFilter('all')}
+          resultCount={filteredProjects.length}
+        />
 
         {/* Projects Cards Grid */}
         <div data-page-guide="list" className="grid grid-cols-1 md:grid-cols-2 gap-4 auto-rows-fr">

@@ -119,20 +119,23 @@ export default function ToolsPage() {
             setIsAddModalOpen(true);
           }} leftIcon={<Plus className="w-4 h-4" />}>Add Tool</Button>}
         />
-        <WorkspaceFilters title="Find equipment" summary={<FilterSummary count={filteredTools.length} itemName="tool" active={Boolean(searchQuery) || conditionFilter !== 'all'} onClear={() => { setSearchQuery(''); setConditionFilter('all'); }} />}>
-          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-            <div className="w-full sm:w-80">
-              <Input label="Search tools" placeholder="Search tool or project name" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} leftIcon={<Search className="w-4 h-4" />} />
-            </div>
-            <div className="w-full sm:w-48">
+        <WorkspaceFilters title="Find equipment" summary={<FilterSummary count={filteredTools.length} itemName="tool" active={Boolean(searchQuery) || conditionFilter !== 'all'} onClear={() => { setSearchQuery(''); setConditionFilter('all'); }} />}
+          search={
+            <Input label="Search tools" placeholder="Search tool or project name" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} leftIcon={<Search className="w-4 h-4" />} />
+          }
+          filters={
+            <div className="w-full sm:w-56">
               <Select label="Condition" value={conditionFilter} onChange={(e) => setConditionFilter(e.target.value)} options={[
                 { label: 'All Conditions', value: 'all' }, { label: 'Excellent', value: 'excellent' },
                 { label: 'Good', value: 'good' }, { label: 'Fair', value: 'fair' },
                 { label: 'Needs Repair', value: 'needs_repair' }, { label: 'Damaged', value: 'damaged' },
               ]} />
             </div>
-          </div>
-        </WorkspaceFilters>
+          }
+          activeFilterCount={conditionFilter !== 'all' ? 1 : 0}
+          onClearFilters={() => setConditionFilter('all')}
+          resultCount={filteredTools.length}
+        />
 
         {/* Tools Grid */}
         <div data-page-guide="list" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">

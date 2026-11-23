@@ -116,11 +116,13 @@ export default function ClientsPage() {
             setIsAddModalOpen(true);
           }} leftIcon={<Plus className="w-4 h-4" />}>Add Client</Button>}
         />
-        <WorkspaceFilters title="Find clients" summary={<FilterSummary count={filteredClients.length} itemName="client" active={Boolean(searchQuery)} onClear={() => setSearchQuery('')} />}>
-          <div className="max-w-md">
+        <WorkspaceFilters
+          title="Find clients"
+          summary={<FilterSummary count={filteredClients.length} itemName="client" active={Boolean(searchQuery)} onClear={() => setSearchQuery('')} />}
+          search={
             <Input label="Search clients" placeholder="Search client name, representative, address..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} leftIcon={<Search className="w-4 h-4" />} />
-          </div>
-        </WorkspaceFilters>
+          }
+        />
 
         {/* Client Cards Grid */}
         <div data-page-guide="list" className="grid grid-cols-1 md:grid-cols-2 gap-4 auto-rows-fr">
