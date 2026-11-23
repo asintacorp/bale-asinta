@@ -54,6 +54,7 @@ export default function PayrollPage() {
   const [isPayslipModalOpen, setIsPayslipModalOpen] = useState(false);
   const [isPrintAllModalOpen, setIsPrintAllModalOpen] = useState(false);
   const [printDateRange, setPrintDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
+  const [printSiteId, setPrintSiteId] = useState<string>('all');
   const [printVouchers, setPrintVouchers] = useState<Payroll[]>([]);
   const [selectedPayroll, setSelectedPayroll] = useState<Payroll | null>(null);
 
@@ -70,53 +71,6 @@ export default function PayrollPage() {
   /** Chunks an array into groups of `size` (used for 3×3 = 9 slips per A4 page). */
   const chunkBy = <T,>(arr: T[], size: number): T[][] =>
     arr.reduce<T[][]>((acc, _, i) => (i % size === 0 ? [...acc, arr.slice(i, i + size)] : acc), []);
-
-  // Slips that fall inside the selected print range. Payroll slips are only
-  // included when their whole period sits inside the range.
-  const printRangeVouchers = payroll.filter(
-    (p) =>
-      Boolean(printDateRange.start) &&
-      Boolean(printDateRange.end) &&
-      p.period_start >= printDateRange.start &&
-      p.period_end <= printDateRange.end
-  );
-  const printPageCount = Math.ceil(printRangeVouchers.length / 9);
-
-  /**
-   * Freezes the selected slips into `printVouchers` and prints them.
-   *
-   * The A4 document is rendered through a portal straight into <body> (see the
-   * JSX below), so closing this modal no longer removes the print template and
-   * the modal chrome never reaches the printer.
-   */
-  const handlePrintAllSlips = () => {
-    if (!printDateRange.start || !printDateRange.end) {
-      showToast('error', 'Please select both start and end dates.');
-      return;
-    }
-    if (printDateRange.start > printDateRange.end) {
-      showToast('error', 'The start date must be on or before the end date.');
-      return;
-    }
-    if (printRangeVouchers.length === 0) {
-      showToast('error', 'No payroll slips found in that date range.');
-      return;
-    }
-
-    setPrintVouchers(printRangeVouchers);
-    setIsPrintAllModalOpen(false);
-    // Wait one paint so the portal document is in the DOM before printing.
-    window.setTimeout(() => window.print(), 150);
-  };
-
-  // Drop the frozen snapshot once the browser is done printing, so the
-  // print-isolation CSS never affects a later single-payslip print.
-  useEffect(() => {
-    if (printVouchers.length === 0) return;
-    const clearPrintSnapshot = () => setPrintVouchers([]);
-    window.addEventListener('afterprint', clearPrintSnapshot);
-    return () => window.removeEventListener('afterprint', clearPrintSnapshot);
-  }, [printVouchers]);
 
   /**
    * Resolves the project site(s) associated with a payroll record using:
@@ -155,6 +109,64 @@ export default function PayrollPage() {
 
     return projects.filter((p) => periodProjectIds.has(p.id));
   };
+
+  /**
+   * A slip belongs to the print range when its whole period sits inside the
+   * chosen dates and, if a site is selected, the worker was allocated to that
+   * site during the period. Site resolution matches the list view exactly:
+   * attendance in the period → project names in `notes` → the worker's overall
+   * attendance/advance assignments.
+   */
+  const matchesPrintRange = (pay: Payroll) => {
+    if (!printDateRange.start || !printDateRange.end) return false;
+    if (pay.period_start < printDateRange.start || pay.period_end > printDateRange.end) return false;
+    if (printSiteId === 'all') return true;
+    return getProjectsForPayroll(pay).some((project) => project.id === printSiteId);
+  };
+
+  // Only evaluated while the dialog is open, so the page render stays cheap.
+  const printRangeVouchers = isPrintAllModalOpen ? payroll.filter(matchesPrintRange) : [];
+  const printPageCount = Math.ceil(printRangeVouchers.length / 9);
+  const printSiteName =
+    printSiteId === 'all' ? null : projects.find((project) => project.id === printSiteId)?.name ?? null;
+
+  /**
+   * Freezes the selected slips into `printVouchers` and prints them.
+   *
+   * The A4 document is rendered through a portal straight into <body> (see the
+   * JSX below), so closing this modal no longer removes the print template and
+   * the modal chrome never reaches the printer.
+   */
+  const handlePrintAllSlips = () => {
+    if (!printDateRange.start || !printDateRange.end) {
+      showToast('error', 'Please select both start and end dates.');
+      return;
+    }
+    if (printDateRange.start > printDateRange.end) {
+      showToast('error', 'The start date must be on or before the end date.');
+      return;
+    }
+
+    const vouchers = payroll.filter(matchesPrintRange);
+    if (vouchers.length === 0) {
+      showToast('error', 'No payroll slips found for that date range and site.');
+      return;
+    }
+
+    setPrintVouchers(vouchers);
+    setIsPrintAllModalOpen(false);
+    // Wait one paint so the portal document is in the DOM before printing.
+    window.setTimeout(() => window.print(), 150);
+  };
+
+  // Drop the frozen snapshot once the browser is done printing, so the
+  // print-isolation CSS never affects a later single-payslip print.
+  useEffect(() => {
+    if (printVouchers.length === 0) return;
+    const clearPrintSnapshot = () => setPrintVouchers([]);
+    window.addEventListener('afterprint', clearPrintSnapshot);
+    return () => window.removeEventListener('afterprint', clearPrintSnapshot);
+  }, [printVouchers]);
 
   const filteredPayroll = payroll.filter((p) => {
     const worker = workers.find((w) => w.id === p.worker_id);
@@ -684,6 +696,21 @@ export default function PayrollPage() {
       >
         <div className="space-y-5">
           <div className="grid gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <Select
+                label="Project site"
+                value={printSiteId}
+                onChange={(e) => setPrintSiteId(e.target.value)}
+                options={[
+                  { label: 'All sites', value: 'all' },
+                  ...projects
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((project) => ({ label: project.name, value: project.id })),
+                ]}
+                hint="A slip is included when the worker was allocated to this site during the period."
+              />
+            </div>
             <Input
               label="Date from"
               type="date"
@@ -700,8 +727,8 @@ export default function PayrollPage() {
 
           <p className="text-xs text-ink-secondary" aria-live="polite">
             {printRangeVouchers.length === 0
-              ? 'No payroll slips fall inside this date range.'
-              : `${printRangeVouchers.length} payroll slip${printRangeVouchers.length === 1 ? '' : 's'} will be printed on ${printPageCount} A4 page${printPageCount === 1 ? '' : 's'} (3x3 grid per page).`}
+              ? 'No payroll slips fall inside this date range and site.'
+              : `${printRangeVouchers.length} payroll slip${printRangeVouchers.length === 1 ? '' : 's'} ${printSiteName ? `for ${printSiteName} ` : ''}will be printed on ${printPageCount} A4 page${printPageCount === 1 ? '' : 's'} (3x3 grid per page).`}
           </p>
 
           <div className="flex flex-wrap justify-end gap-2">
@@ -746,6 +773,13 @@ export default function PayrollPage() {
                           </div>
                           <div className="pp-period">
                             {pay.period_start} <span className="pp-arrow">→</span> {pay.period_end}
+                          </div>
+                          <div className="pp-site">
+                            <span className="pp-site-label">Site:</span>{' '}
+                            {(() => {
+                              const siteNames = getProjectsForPayroll(pay).map((project) => project.name);
+                              return siteNames.length > 0 ? siteNames.join(', ') : 'No site recorded';
+                            })()}
                           </div>
                           <dl className="pp-rows">
                             <div className="pp-row">
@@ -845,7 +879,7 @@ export default function PayrollPage() {
             padding: 4mm;
             overflow: hidden;
             border: 0.35mm solid #C9D2DE;
-            border-radius: 2mm;
+            border-radius: 0;
             background: #FFFFFF;
             break-inside: avoid;
             page-break-inside: avoid;
@@ -886,6 +920,16 @@ export default function PayrollPage() {
             font-variant-numeric: tabular-nums;
           }
           #payroll-slips-print-root .pp-arrow { color: #A5A5A5; }
+
+          /* Project site the worker was allocated to during the period. */
+          #payroll-slips-print-root .pp-site {
+            margin-top: 1.5mm;
+            font-size: 7.5pt;
+            line-height: 1.25;
+            color: #4E5A6B;
+            overflow-wrap: anywhere;
+          }
+          #payroll-slips-print-root .pp-site-label { font-weight: 700; color: #0B1F3A; }
 
           /* The content block is vertically centred inside the 86 mm cell, so
              every ticket in the grid lines up regardless of how many
@@ -938,6 +982,10 @@ export default function PayrollPage() {
             line-height: 1.2;
             color: #4E5A6B;
           }
+
+          /* The single payslip prints with square corners too: the card and
+             every rounded container inside it. */
+          [data-print-document="payslip"], [data-print-document="payslip"] * { border-radius: 0 !important; }
 
           /* Anything marked .no-print or .print-hide never reaches paper. */
           .no-print, .print-hide { display: none !important; }
