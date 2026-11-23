@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { useDataStore } from '@/lib/data/store';
 import { Payroll } from '@/types';
@@ -67,8 +68,55 @@ export default function PayrollPage() {
   const formatPHP = formatPesoCompact;
 
   /** Chunks an array into groups of `size` (used for 3×3 = 9 slips per A4 page). */
-  const chunkBy = (arr: any[], size: number): any[][] =>
-    arr.reduce<any[][]>((acc, _, i) => (i % size === 0 ? [...acc, arr.slice(i, i + size)] : acc), []);
+  const chunkBy = <T,>(arr: T[], size: number): T[][] =>
+    arr.reduce<T[][]>((acc, _, i) => (i % size === 0 ? [...acc, arr.slice(i, i + size)] : acc), []);
+
+  // Slips that fall inside the selected print range. Payroll slips are only
+  // included when their whole period sits inside the range.
+  const printRangeVouchers = payroll.filter(
+    (p) =>
+      Boolean(printDateRange.start) &&
+      Boolean(printDateRange.end) &&
+      p.period_start >= printDateRange.start &&
+      p.period_end <= printDateRange.end
+  );
+  const printPageCount = Math.ceil(printRangeVouchers.length / 9);
+
+  /**
+   * Freezes the selected slips into `printVouchers` and prints them.
+   *
+   * The A4 document is rendered through a portal straight into <body> (see the
+   * JSX below), so closing this modal no longer removes the print template and
+   * the modal chrome never reaches the printer.
+   */
+  const handlePrintAllSlips = () => {
+    if (!printDateRange.start || !printDateRange.end) {
+      showToast('error', 'Please select both start and end dates.');
+      return;
+    }
+    if (printDateRange.start > printDateRange.end) {
+      showToast('error', 'The start date must be on or before the end date.');
+      return;
+    }
+    if (printRangeVouchers.length === 0) {
+      showToast('error', 'No payroll slips found in that date range.');
+      return;
+    }
+
+    setPrintVouchers(printRangeVouchers);
+    setIsPrintAllModalOpen(false);
+    // Wait one paint so the portal document is in the DOM before printing.
+    window.setTimeout(() => window.print(), 150);
+  };
+
+  // Drop the frozen snapshot once the browser is done printing, so the
+  // print-isolation CSS never affects a later single-payslip print.
+  useEffect(() => {
+    if (printVouchers.length === 0) return;
+    const clearPrintSnapshot = () => setPrintVouchers([]);
+    window.addEventListener('afterprint', clearPrintSnapshot);
+    return () => window.removeEventListener('afterprint', clearPrintSnapshot);
+  }, [printVouchers]);
 
   /**
    * Resolves the project site(s) associated with a payroll record using:
@@ -204,7 +252,7 @@ export default function PayrollPage() {
                 onClick={() => setIsPrintAllModalOpen(true)}
                 leftIcon={<Printer className="w-4 h-4" />}
               >
-                Print All Payslips
+                Print All Payroll Slips
               </Button>
             </div>
           }
@@ -596,18 +644,13 @@ export default function PayrollPage() {
                   </table>
                 </div>
 
-                {/* Worker Signature Acknowledgment */}
-                <div className="pt-4 border-t border-slate-200 flex items-end justify-between text-[11px]">
-                  <div>
-                    <div className="text-[10px] text-ink-secondary">Authorized by:</div>
-                    <div className="font-bold text-navy">Ar. Junel Buyagon</div>
+                {/* Architect Signature — matches the batch slips: the architect
+                    signs the payslip, workers do not. */}
+                <div className="pt-4 border-t border-slate-200 flex justify-end text-[11px]">
+                  <div className="w-56 text-center">
+                    <div className="border-b border-navy" />
+                    <div className="mt-1 text-[10px] font-bold text-navy">Ar. Junel Buyagon</div>
                     <div className="text-[9px] text-ink-muted">Principal Architect</div>
-                  </div>
-
-                  <div className="text-center">
-                    <div className="w-44 border-b border-navy mb-1" />
-                    <div className="text-[10px] font-semibold text-navy">Worker Signature & Date</div>
-                    <div className="text-[9px] text-ink-muted">Acknowledgment, if applicable</div>
                   </div>
                 </div>
               </div>
@@ -631,149 +674,273 @@ export default function PayrollPage() {
         })()}
       </Modal>
 
-      {/* PRINT ALL PAYROLL SLIPS (A4 3×3) MODAL */}
+      {/* PRINT ALL PAYROLL SLIPS — date range picker only (never printed) */}
       <Modal
         isOpen={isPrintAllModalOpen}
         onClose={() => setIsPrintAllModalOpen(false)}
         title="Print All Payroll Slips"
-        description="Select a date range, then print payslips 3×3 per A4 page"
-        maxWidth="2xl"
+        description="Pick the payroll period, then print 9 slips per A4 page."
+        maxWidth="lg"
       >
-        <div className="space-y-4">
-          <div className="rounded-xl border border-surface-border bg-surface-inset p-4">
-            <div className="grid gap-3 sm:grid-cols-2 items-end">
-              <div>
-                <label className="block text-xs font-medium text-ink-secondary mb-1">Date from</label>
-                <Input
-                  type="date"
-                  value={printDateRange.start}
-                  onChange={(e) => setPrintDateRange({ ...printDateRange, start: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-ink-secondary mb-1">Date to</label>
-                <Input
-                  type="date"
-                  value={printDateRange.end}
-                  onChange={(e) => setPrintDateRange({ ...printDateRange, end: e.target.value })}
-                />
-              </div>
-              <div className="col-span-2 flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    if (!printDateRange.start || !printDateRange.end) {
-                      showToast('error', 'Please select both start and end dates.');
-                      return;
-                    }
-                    const filtered = payroll.filter(
-                      (p) => p.period_start >= printDateRange.start && p.period_end <= printDateRange.end
-                    );
-                    setPrintVouchers(filtered);
-                    setIsPrintAllModalOpen(false);
-                  }}
-                >
-                  Preview slips
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => {
-                    if (!printDateRange.start || !printDateRange.end) {
-                      showToast('error', 'Please select both start and end dates.');
-                      return;
-                    }
-                    const filtered = payroll.filter(
-                      (p) => p.period_start >= printDateRange.start && p.period_end <= printDateRange.end
-                    );
-                    setPrintVouchers(filtered);
-                    setIsPrintAllModalOpen(false);
-                    setTimeout(() => window.print(), 100);
-                  }}
-                >
-                  Print to PDF
-                </Button>
-              </div>
-            </div>
-            {printVouchers.length > 0 && (
-              <div className="mt-3 text-[10px] text-ink-muted">
-                {printVouchers.length} payroll slip{printVouchers.length !== 1 ? 's' : ''} will be printed
-              </div>
-            )}
+        <div className="space-y-5">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input
+              label="Date from"
+              type="date"
+              value={printDateRange.start}
+              onChange={(e) => setPrintDateRange((range) => ({ ...range, start: e.target.value }))}
+            />
+            <Input
+              label="Date to"
+              type="date"
+              value={printDateRange.end}
+              onChange={(e) => setPrintDateRange((range) => ({ ...range, end: e.target.value }))}
+            />
           </div>
 
-          {/* A4 pages — 3×3 grid per page */}
-          <div className="print-payroll-slips">
-            {chunkBy(printVouchers, 9).map((page, pageIndex) => (
-              <div key={pageIndex} className="a4-page">
-                <div className="grid grid-cols-3 gap-3 sm:gap-4">
-                  {page.map((pay) => {
-                    const worker = workers.find((w) => w.id === pay.worker_id);
-                    return (
-                      <div key={pay.id} className="payslip-cell border rounded-lg p-2 sm:p-3">
-                        <div className="flex items-center justify-center h-7 sm:h-8 mb-1 sm:mb-2">
-                          <User className="w-5 sm:w-6 h-5 sm:h-6 text-ink-secondary" />
-                        </div>
-                        <div className="text-xs sm:text-sm font-bold text-navy leading-tight">
-                          {worker?.name || 'Worker'}
-                        </div>
-                        <div className="text-[10px] sm:text-xs text-ink-secondary leading-none">
-                          {pay.period_start} → {pay.period_end}
-                        </div>
-                        <div className="mt-1.5 sm:mt-2 space-y-0.5">
-                          <div className="flex justify-between text-[9px] sm:text-xs">
-                            <span className="text-ink-secondary">Gross</span>
-                            <span className="font-bold text-navy">{formatPeso(pay.gross_pay)}</span>
-                          </div>
-                          {pay.bale_deduction > 0 && (
-                            <div className="flex justify-between text-[9px] sm:text-xs text-status-danger">
-                              <span className="text-ink-secondary">Bale</span>
-                              <span className="font-bold">-{formatPeso(pay.bale_deduction)}</span>
-                            </div>
-                          )}
-                          <div className="flex justify-between text-[9px] sm:text-xs font-bold border-t border-surface-border pt-0.5">
-                            <span className="text-ink-secondary">Net Pay</span>
-                            <span className="text-navy">{formatPeso(pay.net_pay)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
+          <p className="text-xs text-ink-secondary" aria-live="polite">
+            {printRangeVouchers.length === 0
+              ? 'No payroll slips fall inside this date range.'
+              : `${printRangeVouchers.length} payroll slip${printRangeVouchers.length === 1 ? '' : 's'} will be printed on ${printPageCount} A4 page${printPageCount === 1 ? '' : 's'} (3x3 grid per page).`}
+          </p>
 
-          {printVouchers.length > 0 && (
-            <div className="mt-3 text-[10px] text-ink-muted text-center">
-              Each A4 page holds up to 9 payroll slips (3×3). Use your browser print dialog and select Save as PDF.
-            </div>
-          )}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="secondary" size="md" onClick={() => setIsPrintAllModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              onClick={handlePrintAllSlips}
+              leftIcon={<Printer className="w-4 h-4" />}
+              disabled={printRangeVouchers.length === 0}
+            >
+              Print to PDF
+            </Button>
+          </div>
         </div>
       </Modal>
 
+      {/*
+        PRINT-ONLY DOCUMENT
+        Portalled into <body> so it lives outside the Modal, the AppShell and the
+        page layout. `window.print()` therefore never sees the date picker, the
+        count text, the modal header/buttons or any app chrome: the print
+        stylesheet below hides every other direct child of <body>.
+      */}
+      {typeof document !== 'undefined' && printVouchers.length > 0
+        ? createPortal(
+            <div id="payroll-slips-print-root" className="pp-doc">
+              {chunkBy(printVouchers, 9).map((page, pageIndex) => (
+                <section key={pageIndex} className="pp-page" aria-label={`Payroll slips page ${pageIndex + 1}`}>
+                  <div className="pp-grid">
+                    {page.map((pay) => {
+                      const worker = workers.find((w) => w.id === pay.worker_id);
+                      return (
+                        <article key={pay.id} className="pp-slip">
+                          <div className="pp-slip-head">
+                            <span className="pp-icon" aria-hidden="true">
+                              <User />
+                            </span>
+                            <span className="pp-name">{worker?.name || 'Worker'}</span>
+                          </div>
+                          <div className="pp-period">
+                            {pay.period_start} <span className="pp-arrow">→</span> {pay.period_end}
+                          </div>
+                          <dl className="pp-rows">
+                            <div className="pp-row">
+                              <dt>Gross Pay</dt>
+                              <dd>{formatPeso(pay.gross_pay)}</dd>
+                            </div>
+                            {pay.bale_deduction > 0 && (
+                              <div className="pp-row pp-row--deduction">
+                                <dt>Bale Deduction</dt>
+                                <dd>-{formatPeso(pay.bale_deduction)}</dd>
+                              </div>
+                            )}
+                            <div className="pp-row pp-row--net">
+                              <dt>Net Pay</dt>
+                              <dd>{formatPeso(pay.net_pay)}</dd>
+                            </div>
+                          </dl>
+                          {/* Signed by the architect only — workers do not sign these slips. */}
+                          <div className="pp-sign">
+                            <span className="pp-sign-line" aria-hidden="true" />
+                            <span className="pp-sign-name">Ar. Junel Buyagon</span>
+                            <span className="pp-sign-title">Principal Architect</span>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>,
+            document.body
+          )
+        : null}
+
+      {/*
+        Print CSS is scoped to `#payroll-slips-print-root`, so the single-payslip
+        modal (which relies on the global `body:has([data-print-document])`
+        rules in globals.css) keeps working exactly as before.
+      */}
       <style>{`
+        /* The A4 document only exists for printing. */
+        .pp-doc { display: none; }
+
         @media print {
-          @page { size: A4; margin: 8mm; }
-          .no-print, [data-modal-backdrop], .fixed.inset-0, .bg-black\\/50, .bg-slate-900\\/50,
-          .print-hide {
-            display: none !important;
+          /* Isolate the slip document: everything else in <body> is removed
+             from the page, including the modal, its backdrop and the app shell. */
+          body:has(#payroll-slips-print-root) > *:not(#payroll-slips-print-root) { display: none !important; }
+
+          body:has(#payroll-slips-print-root) {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #FFFFFF !important;
+            color: #0B1F3A !important;
+            overflow: visible !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
           }
-          .a4-page {
-            width: 210mm;
-            min-height: 297mm;
+
+          #payroll-slips-print-root {
+            display: block !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #FFFFFF !important;
+            color: #172033 !important;
+            font-family: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          /* 180 x 266 mm fits inside A4 at either 8 mm or 12 mm margins, so the
+             3x3 grid can never spill onto a second physical page. */
+          #payroll-slips-print-root .pp-page {
+            width: 180mm;
+            margin: 0 auto;
+            break-after: page;
             page-break-after: always;
-            padding: 6mm;
-            box-sizing: border-box;
           }
-          .a4-page:last-child { page-break-after: auto; }
-          .payslip-cell {
+          #payroll-slips-print-root .pp-page:last-child {
+            break-after: auto;
+            page-break-after: auto;
+          }
+
+          #payroll-slips-print-root .pp-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-auto-rows: 86mm;
+            gap: 4mm;
+          }
+
+          #payroll-slips-print-root .pp-slip {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            box-sizing: border-box;
+            height: 86mm;
+            padding: 4mm;
+            overflow: hidden;
+            border: 0.35mm solid #C9D2DE;
+            border-radius: 2mm;
+            background: #FFFFFF;
             break-inside: avoid;
             page-break-inside: avoid;
-            height: calc((297mm - 12mm) / 3);
-            box-sizing: border-box;
           }
+
+          #payroll-slips-print-root .pp-slip-head {
+            display: flex;
+            align-items: center;
+            gap: 2mm;
+            padding-bottom: 2mm;
+            border-bottom: 0.35mm solid #E1E6ED;
+          }
+          #payroll-slips-print-root .pp-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 7mm;
+            height: 7mm;
+            flex: 0 0 7mm;
+            border-radius: 999px;
+            background: #F1F4F8;
+            color: #1E4D78;
+          }
+          #payroll-slips-print-root .pp-icon svg { width: 4.5mm; height: 4.5mm; stroke-width: 2; }
+          #payroll-slips-print-root .pp-name {
+            font-size: 11pt;
+            font-weight: 700;
+            line-height: 1.15;
+            color: #0B1F3A;
+            overflow-wrap: anywhere;
+          }
+
+          #payroll-slips-print-root .pp-period {
+            margin-top: 2mm;
+            font-size: 8pt;
+            line-height: 1.25;
+            color: #4E5A6B;
+            font-variant-numeric: tabular-nums;
+          }
+          #payroll-slips-print-root .pp-arrow { color: #A5A5A5; }
+
+          /* The content block is vertically centred inside the 86 mm cell, so
+             every ticket in the grid lines up regardless of how many
+             deduction rows it has. */
+          #payroll-slips-print-root .pp-rows { margin: 4mm 0 0; }
+          #payroll-slips-print-root .pp-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 2mm;
+            padding: 1.2mm 0;
+            font-size: 9pt;
+            line-height: 1.2;
+          }
+          #payroll-slips-print-root .pp-row dt { color: #4E5A6B; }
+          #payroll-slips-print-root .pp-row dd {
+            margin: 0;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: #0B1F3A;
+            white-space: nowrap;
+          }
+          #payroll-slips-print-root .pp-row--deduction dd { color: #C52828; }
+          #payroll-slips-print-root .pp-row--net {
+            margin-top: 1mm;
+            padding-top: 2mm;
+            border-top: 0.35mm solid #C9D2DE;
+          }
+          #payroll-slips-print-root .pp-row--net dt { font-weight: 700; color: #0B1F3A; }
+          #payroll-slips-print-root .pp-row--net dd { font-size: 10.5pt; }
+
+          /* Architect signature block: a rule to sign on, then the signatory. */
+          #payroll-slips-print-root .pp-sign { margin-top: 5mm; }
+          #payroll-slips-print-root .pp-sign-line {
+            display: block;
+            width: 32mm;
+            border-top: 0.3mm solid #0B1F3A;
+          }
+          #payroll-slips-print-root .pp-sign-name {
+            display: block;
+            margin-top: 1.2mm;
+            font-size: 7.5pt;
+            font-weight: 700;
+            line-height: 1.2;
+            color: #0B1F3A;
+          }
+          #payroll-slips-print-root .pp-sign-title {
+            display: block;
+            font-size: 6.5pt;
+            line-height: 1.2;
+            color: #4E5A6B;
+          }
+
+          /* Anything marked .no-print or .print-hide never reaches paper. */
+          .no-print, .print-hide { display: none !important; }
         }
       `}</style>
 
