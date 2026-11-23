@@ -132,7 +132,8 @@ interface DataStoreContextType {
   postPayrollExpense: (
     projectId: string,
     periodStart: string,
-    periodEnd: string
+    periodEnd: string,
+    options?: { includeUnsited?: boolean }
   ) => Promise<PayrollPostingResult | null>;
 
   // Tool Actions
@@ -1549,7 +1550,8 @@ export const DataStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const postPayrollExpense = async (
     projectId: string,
     periodStart: string,
-    periodEnd: string
+    periodEnd: string,
+    options?: { includeUnsited?: boolean }
   ): Promise<PayrollPostingResult | null> => {
     const result = await runMutation(
       'Post payroll to project costs',
@@ -1558,6 +1560,9 @@ export const DataStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           p_project_id: projectId,
           p_period_start: periodStart,
           p_period_end: periodEnd,
+          // Opt-in only: the automatic path after a payment never guesses a
+          // site for vouchers that were generated without one.
+          p_include_unsited: options?.includeUnsited ?? false,
         }),
       'The payment is recorded, but its project cost was not posted. Retry from the expense list.'
     );

@@ -73,6 +73,7 @@ export default function PayrollPage() {
   // itself (firm-wide runs, or a payment recorded before this feature).
   const [isPostCostsModalOpen, setIsPostCostsModalOpen] = useState(false);
   const [postSiteId, setPostSiteId] = useState<string>('all');
+  const [postIncludeUnsited, setPostIncludeUnsited] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const postLock = React.useRef(false);
   const pendingPrint = React.useRef(false);
@@ -268,7 +269,15 @@ export default function PayrollPage() {
   const postSiteVouchers = payroll.filter(
     (p) => p.project_id === postSiteId && p.period_start === periodStart && p.period_end === periodEnd
   );
-  const postPaidVouchers = postSiteVouchers.filter((p) => p.status === 'paid');
+  // Vouchers generated before payroll recorded a site. They can only be posted
+  // when the Founder names the site by hand, so they stay opt-in and the
+  // automatic path after a payment never touches them.
+  const unsitedVouchers = payroll.filter(
+    (p) => !p.project_id && p.period_start === periodStart && p.period_end === periodEnd
+  );
+  const includeUnsited = postIncludeUnsited && unsitedVouchers.length > 0;
+  const postScopeVouchers = includeUnsited ? [...postSiteVouchers, ...unsitedVouchers] : postSiteVouchers;
+  const postPaidVouchers = postScopeVouchers.filter((p) => p.status === 'paid');
   const postGross = postPaidVouchers.reduce((sum, p) => sum + Number(p.gross_pay || 0), 0);
   const postBale = postPaidVouchers.reduce((sum, p) => sum + Number(p.bale_deduction || 0), 0);
   const postNet = postPaidVouchers.reduce((sum, p) => sum + Number(p.net_pay || 0), 0);
@@ -277,6 +286,7 @@ export default function PayrollPage() {
 
   const openPostCosts = () => {
     setPostSiteId(generateProjectId !== 'all' ? generateProjectId : 'all');
+    setPostIncludeUnsited(false);
     setIsPostCostsModalOpen(true);
   };
 
@@ -285,14 +295,18 @@ export default function PayrollPage() {
     postLock.current = true;
     setIsPosting(true);
     try {
-      const result = await postPayrollExpense(postSiteId, periodStart, periodEnd);
+      const result = await postPayrollExpense(postSiteId, periodStart, periodEnd, { includeUnsited });
       if (result) {
         const amount = formatPeso(Number(result.amount ?? postNet));
+        const included = Number(result.unsited_vouchers ?? 0);
+        const note = included > 0
+          ? ` (includes ${included} voucher${included === 1 ? '' : 's'} recorded before sites were tracked)`
+          : '';
         showToast(
           'success',
           result.outcome === 'unchanged'
-            ? `${amount} of labor cost was already posted for ${postSiteName || 'this site'}.`
-            : `${amount} posted to ${postSiteName || 'the site'} as labor cost.`
+            ? `${amount} of labor cost was already posted for ${postSiteName || 'this site'}${note}.`
+            : `${amount} posted to ${postSiteName || 'the site'} as labor cost${note}.`
         );
         setIsPostCostsModalOpen(false);
       } else {
@@ -812,7 +826,7 @@ export default function PayrollPage() {
           <Select
             label="Project site"
             value={postSiteId}
-            onChange={(e) => setPostSiteId(e.target.value)}
+            onChange={(e) => { setPostSiteId(e.target.value); setPostIncludeUnsited(false); }}
             disabled={isPosting}
             options={[
               { label: 'Choose a site', value: 'all' },
@@ -833,6 +847,26 @@ export default function PayrollPage() {
             </p>
           </div>
 
+          {postSiteId !== 'all' && unsitedVouchers.length > 0 && (
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-surface-border bg-white p-3">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4"
+                checked={postIncludeUnsited}
+                onChange={(e) => setPostIncludeUnsited(e.target.checked)}
+                disabled={isPosting}
+              />
+              <span className="text-xs text-ink-secondary">
+                <span className="block font-semibold text-navy">
+                  Include {unsitedVouchers.length} voucher{unsitedVouchers.length === 1 ? '' : 's'} recorded before
+                  sites were tracked
+                </span>
+                Only switch this on if this period&apos;s unsited vouchers belong to {postSiteName || 'this site'} — the
+                app cannot know which site they were for.
+              </span>
+            </label>
+          )}
+
           {postSiteId === 'all' ? (
             <p className="text-xs text-ink-secondary">
               Choose one site. Every expense in this ledger belongs to a site, so a firm-wide run cannot post a cost.
@@ -842,7 +876,7 @@ export default function PayrollPage() {
               <div className="flex justify-between gap-3">
                 <dt className="text-ink-secondary">Vouchers paid</dt>
                 <dd className="font-semibold tabular-nums text-navy">
-                  {postPaidVouchers.length} of {postSiteVouchers.length}
+                  {postPaidVouchers.length} of {postScopeVouchers.length}
                 </dd>
               </div>
               <div className="flex justify-between gap-3">
@@ -869,7 +903,7 @@ export default function PayrollPage() {
 
           {postSiteId !== 'all' && postPaidVouchers.length === 0 && (
             <p role="status" className="rounded-xl border border-status-warning/20 bg-status-warning-bg p-3 text-xs text-status-warning">
-              No paid vouchers for this site and period yet. Drafts and approved vouchers are not a cost; mark them paid first.
+              No paid vouchers in this scope yet. Drafts and approved vouchers are not a cost; mark them paid first.
             </p>
           )}
 

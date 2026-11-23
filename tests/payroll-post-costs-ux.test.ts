@@ -77,7 +77,8 @@ describe('payroll — posting a run to project costs', () => {
       fireEvent.click(within(dialog).getByRole('button', { name: /Post ₱13,670\.00/ }));
     });
 
-    expect(mock.post).toHaveBeenCalledWith('site', '2026-11-17', '2026-11-23');
+    // No opt-in on the automatic path: the site comes from the vouchers.
+    expect(mock.post).toHaveBeenCalledWith('site', '2026-11-17', '2026-11-23', { includeUnsited: false });
     expect(mock.toast).toHaveBeenCalledWith('success', '₱13,670.00 posted to Villa Serena as labor cost.');
   });
 

@@ -99,6 +99,8 @@ export interface PayrollPostingResult {
   bale_recovered?: number;
   net_released?: number;
   vouchers?: number;
+  /** Vouchers with no site that the opt-in included (0 on the automatic path). */
+  unsited_vouchers?: number;
 }
 
 export interface Expense {
