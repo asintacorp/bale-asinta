@@ -377,19 +377,17 @@ export default function InvoicesPage() {
         <WorkspaceFilters
           title="Find an invoice"
           summary={<FilterSummary count={filteredInvoices.length} itemName="invoice" active={Boolean(searchQuery) || statusFilter !== 'all'} onClear={() => { setSearchQuery(''); setStatusFilter('all'); }} />}
-        >
-          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-            <div className="w-full sm:w-80">
-              <Input
-                label="Search invoices"
-                placeholder="Search invoice number, client, project..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                leftIcon={<Search className="w-4 h-4" />}
-              />
-            </div>
-
-            <div className="w-full sm:w-48">
+          search={
+            <Input
+              label="Search invoices"
+              placeholder="Search invoice number, client, project..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              leftIcon={<Search className="w-4 h-4" />}
+            />
+          }
+          filters={
+            <div className="w-full sm:w-56">
               <Select
                 label="Status"
                 value={statusFilter}
@@ -405,8 +403,11 @@ export default function InvoicesPage() {
                 ]}
               />
             </div>
-          </div>
-        </WorkspaceFilters>
+          }
+          activeFilterCount={statusFilter !== 'all' ? 1 : 0}
+          onClearFilters={() => setStatusFilter('all')}
+          resultCount={filteredInvoices.length}
+        />
 
         {/* Invoices List / Table */}
         <div data-page-guide="list" className="bg-white rounded-xl border border-surface-border overflow-hidden">

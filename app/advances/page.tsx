@@ -275,49 +275,55 @@ function IssuedAdvancesPanel({ openQuick, onQuickOpened }: { openQuick: boolean;
 
         <p className="text-xs leading-relaxed text-ink-secondary">Summary reflects loaded advances for the selected project; older records may be missing. Search and status filters apply to the list below.</p>
 
-        <WorkspaceFilters title="Find an issued advance" summary={<FilterSummary count={filteredAdvances.length} itemName="advance" active={Boolean(searchQuery) || projectFilter !== 'all' || statusFilter !== 'all'} onClear={() => { setSearchQuery(''); setProjectFilter('all'); setStatusFilter('all'); }} />}>
-          <div className="flex flex-col sm:flex-row flex-wrap sm:items-end gap-3">
-            <div className="w-full sm:w-80">
-              <Input
-                label="Search advances"
-                placeholder="Search worker name, reason, project..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                leftIcon={<Search className="w-4 h-4" />}
-              />
-            </div>
+        <WorkspaceFilters
+          title="Find an issued advance"
+          summary={<FilterSummary count={filteredAdvances.length} itemName="advance" active={Boolean(searchQuery) || projectFilter !== 'all' || statusFilter !== 'all'} onClear={() => { setSearchQuery(''); setProjectFilter('all'); setStatusFilter('all'); }} />}
+          search={
+            <Input
+              label="Search advances"
+              placeholder="Search worker name, reason, project..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              leftIcon={<Search className="w-4 h-4" />}
+            />
+          }
+          filters={
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+              <div className="w-full sm:w-64">
+                <Select
+                  label="Project"
+                  value={projectFilter}
+                  onChange={(e) => setProjectFilter(e.target.value)}
+                  options={[
+                    { label: 'All Project Sites', value: 'all' },
+                    ...projects.map((p) => ({
+                      label: `${p.name} (${p.location.split(',')[0]})`,
+                      value: p.id,
+                    })),
+                  ]}
+                />
+              </div>
 
-            <div className="w-full sm:w-64">
-              <Select
-                label="Project"
-                value={projectFilter}
-                onChange={(e) => setProjectFilter(e.target.value)}
-                options={[
-                  { label: 'All Project Sites', value: 'all' },
-                  ...projects.map((p) => ({
-                    label: `${p.name} (${p.location.split(',')[0]})`,
-                    value: p.id,
-                  })),
-                ]}
-              />
+              <div className="w-full sm:w-48">
+                <Select
+                  label="Status"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  options={[
+                    { label: 'All Statuses', value: 'all' },
+                    { label: 'Active', value: 'active' },
+                    { label: 'Partially Deducted', value: 'partially_deducted' },
+                    { label: 'Fully Deducted', value: 'fully_deducted' },
+                    { label: 'Cancelled', value: 'cancelled' },
+                  ]}
+                />
+              </div>
             </div>
-
-            <div className="w-full sm:w-48">
-              <Select
-                label="Status"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                options={[
-                  { label: 'All Statuses', value: 'all' },
-                  { label: 'Active', value: 'active' },
-                  { label: 'Partially Deducted', value: 'partially_deducted' },
-                  { label: 'Fully Deducted', value: 'fully_deducted' },
-                  { label: 'Cancelled', value: 'cancelled' },
-                ]}
-              />
-            </div>
-          </div>
-        </WorkspaceFilters>
+          }
+          activeFilterCount={(projectFilter !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0)}
+          onClearFilters={() => { setProjectFilter('all'); setStatusFilter('all'); }}
+          resultCount={filteredAdvances.length}
+        />
 
         {/* Advances List */}
         <div className="bg-white rounded-xl border border-surface-border overflow-hidden">
