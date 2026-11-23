@@ -644,18 +644,13 @@ export default function PayrollPage() {
                   </table>
                 </div>
 
-                {/* Worker Signature Acknowledgment */}
-                <div className="pt-4 border-t border-slate-200 flex items-end justify-between text-[11px]">
-                  <div>
-                    <div className="text-[10px] text-ink-secondary">Authorized by:</div>
-                    <div className="font-bold text-navy">Ar. Junel Buyagon</div>
+                {/* Architect Signature — matches the batch slips: the architect
+                    signs the payslip, workers do not. */}
+                <div className="pt-4 border-t border-slate-200 flex justify-end text-[11px]">
+                  <div className="w-56 text-center">
+                    <div className="border-b border-navy" />
+                    <div className="mt-1 text-[10px] font-bold text-navy">Ar. Junel Buyagon</div>
                     <div className="text-[9px] text-ink-muted">Principal Architect</div>
-                  </div>
-
-                  <div className="text-center">
-                    <div className="w-44 border-b border-navy mb-1" />
-                    <div className="text-[10px] font-semibold text-navy">Worker Signature & Date</div>
-                    <div className="text-[9px] text-ink-muted">Acknowledgment, if applicable</div>
                   </div>
                 </div>
               </div>
