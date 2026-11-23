@@ -67,7 +67,7 @@ describe('posting pre-upgrade vouchers on purpose', () => {
     const dialog = openDialog();
 
     // One unsited voucher in this period (not the December one).
-    expect(within(dialog).getByText('Include 1 voucher recorded before sites were tracked')).toBeTruthy();
+    expect(within(dialog).getByText('Include 1 paid voucher recorded before sites were tracked')).toBeTruthy();
     expect((within(dialog).getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
     expect(within(dialog).getByText('1 of 2')).toBeTruthy();
     expect(within(dialog).getByText('₱5,000.00')).toBeTruthy();
@@ -94,6 +94,31 @@ describe('posting pre-upgrade vouchers on purpose', () => {
       'success',
       '₱9,000.00 posted to Villa Serena as labor cost (includes 1 voucher recorded before sites were tracked).'
     );
+  });
+
+  it('does not offer the opt-in for approved vouchers and explains why nothing can post', () => {
+    // Nothing is paid in this period: the site has only a draft, the pre-upgrade
+    // voucher is approved.
+    state.payroll = [siteDraft, { ...unsitedPaid, status: 'approved' }, unsitedOtherPeriod];
+    render(React.createElement(PayrollPage));
+    const dialog = openDialog();
+
+    // Approved is not paid: no money has left, so there is nothing to include.
+    expect(within(dialog).queryByRole('checkbox')).toBeNull();
+    expect(
+      within(dialog).getByText(/This period has 1 voucher recorded before sites were tracked, but none are paid yet/)
+    ).toBeTruthy();
+    expect((within(dialog).getByRole('button', { name: 'Post to project costs' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('points at the opt-in when paid pre-upgrade vouchers exist but are not in scope', () => {
+    state.payroll = [siteDraft, unsitedPaid];
+    render(React.createElement(PayrollPage));
+    const dialog = openDialog();
+
+    expect(
+      within(dialog).getByText(/1 paid voucher of this period was recorded before sites were tracked and is not in scope yet/)
+    ).toBeTruthy();
   });
 
   it('hides the opt-in when every voucher of the period already knows its site', () => {
