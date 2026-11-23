@@ -22,6 +22,7 @@ import {
   User,
   ExpenseCategory,
   AttendanceStatus,
+  PayrollPostingResult,
 } from '@/types';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth/authContext';
@@ -123,6 +124,17 @@ interface DataStoreContextType {
     projectId?: string
   ) => Promise<Payroll[] | null>;
   updatePayrollStatus: (id: string, status: Payroll['status']) => Promise<boolean>;
+  /**
+   * Posts (or refreshes) the labor expense for one paid payroll run. Idempotent
+   * server-side: one expense per project + period, so calling it again after
+   * more vouchers were paid updates the same row.
+   */
+  postPayrollExpense: (
+    projectId: string,
+    periodStart: string,
+    periodEnd: string,
+    options?: { includeUnsited?: boolean }
+  ) => Promise<PayrollPostingResult | null>;
 
   // Tool Actions
   createTool: (data: Omit<Tool, 'id' | 'created_at'>) => Promise<Tool | null>;
@@ -862,10 +874,45 @@ export const DataStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return mapped;
   };
 
+  /**
+   * Fields a generated expense inherits from its source record. Payroll and
+   * advances own these; only text, notes, supplier-ish detail and the receipt
+   * stay editable here. Mirrors the `guard_linked_expense_fields` trigger.
+   */
+  const LINKED_EXPENSE_LOCKED_FIELDS: (keyof Expense)[] = [
+    'amount',
+    'expense_date',
+    'project_id',
+    'category',
+    'source',
+    'advance_id',
+    'payroll_period_start',
+    'payroll_period_end',
+    'line_items',
+    'removed_at',
+  ];
+
   const updateExpense = async (id: string, data: Partial<Expense>, expectedRevision?: number): Promise<Expense | null> => {
     const before = expenses.find((e) => e.id === id) ?? null;
+    let payload = data;
+    if (before && (before.source ?? 'manual') !== 'manual') {
+      const changed = LINKED_EXPENSE_LOCKED_FIELDS.some(
+        (field) => field in data && data[field] !== before[field]
+      );
+      if (changed) {
+        showToast(
+          'error',
+          'Amount, date, site and category come from payroll or advances. Change the source record instead.'
+        );
+        return null;
+      }
+      payload = Object.fromEntries(
+        Object.entries(data).filter(([key]) => !LINKED_EXPENSE_LOCKED_FIELDS.includes(key as keyof Expense))
+      ) as Partial<Expense>;
+      if (Object.keys(payload).length === 0) return before;
+    }
     const row = await runMutation('Update expense', (db) =>
-      (expectedRevision === undefined ? db.from('expenses').update(data).eq('id', id) : db.from('expenses').update(data).eq('id', id).eq('revision', expectedRevision)).select().single()
+      (expectedRevision === undefined ? db.from('expenses').update(payload).eq('id', id) : db.from('expenses').update(payload).eq('id', id).eq('revision', expectedRevision)).select().single()
     );
     const mapped = row ? mapExpense(row) : null;
     if (mapped) {
@@ -883,6 +930,13 @@ export const DataStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const deleteExpense = async (id: string): Promise<boolean> => {
     const before = expenses.find((e) => e.id === id) ?? null;
+    if (before && (before.source ?? 'manual') !== 'manual') {
+      showToast(
+        'error',
+        'This cost was generated from payroll or an advance and stays in sync with it. Reverse the source record instead.'
+      );
+      return false;
+    }
     const now = new Date().toISOString();
     const ok = await runMutation('Delete expense', async (db) => {
       const { error } = await db
@@ -930,6 +984,14 @@ export const DataStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         before: null,
         after: mapped as unknown as Record<string, unknown>,
       });
+      // The advance is cash out today, so it is a labor cost today (the Bale
+      // deduction later only recovers it). Idempotent per advance.
+      const posted = await runMutation(
+        'Post advance to project costs',
+        (db) => db.rpc('post_advance_expense', { p_advance_id: mapped.id }),
+        'The advance is recorded, but its project cost was not posted. Retry from the expense list.'
+      );
+      if (posted) await refresh();
     }
     return mapped;
   };
@@ -1321,6 +1383,7 @@ export const DataStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             id: existingForPeriod.id,
             before: existingForPeriod,
             patch: {
+              project_id: targetProject?.id ?? existingForPeriod.project_id ?? null,
               gross_pay: Math.round(gross),
               bale_deduction: suggestedDeduction,
               net_pay: Math.round(Math.max(0, gross - suggestedDeduction - existingForPeriod.other_deductions)),
@@ -1334,6 +1397,7 @@ export const DataStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
         rowsToInsert.push({
           worker_id: w.id,
+          project_id: targetProject?.id ?? null,
           period_start: periodStart,
           period_end: periodEnd,
           gross_pay: Math.round(gross),
@@ -1454,10 +1518,56 @@ export const DataStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setPayroll((prev) => prev.map((p) => (p.id === id ? mapped : p)));
       const changed = (result.advances || []).map(mapAdvance);
       setAdvances((prev) => prev.map((a) => changed.find((updated) => updated.id === a.id) || a));
+      // Cash left the firm for this voucher → its run's labor cost belongs in
+      // the project ledger. Firm-wide vouchers (no project) are skipped; the
+      // payroll header can post those once a site is chosen.
+      if (status === 'paid' && mapped.project_id) {
+        await runMutation(
+          'Post payroll to project costs',
+          (db) =>
+            db.rpc('post_payroll_expense', {
+              p_project_id: mapped.project_id,
+              p_period_start: mapped.period_start,
+              p_period_end: mapped.period_end,
+            }),
+          'The payment is recorded, but its project cost was not posted. Retry from the expense list.'
+        );
+      }
     }
     // Also refresh after an unconfirmed response, which may have committed.
     await refresh();
     return Boolean(result?.payroll);
+  };
+
+  /**
+   * Labor cost of a payroll run, in the project ledger.
+   *
+   * The expense records NET released: a released Bale advance was already
+   * posted as its own labor expense when the cash left, so re-posting gross
+   * here would count the same money twice. Gross stays on the vouchers and is
+   * shown as the tie-out on the expense row.
+   */
+  const postPayrollExpense = async (
+    projectId: string,
+    periodStart: string,
+    periodEnd: string,
+    options?: { includeUnsited?: boolean }
+  ): Promise<PayrollPostingResult | null> => {
+    const result = await runMutation(
+      'Post payroll to project costs',
+      (db) =>
+        db.rpc('post_payroll_expense', {
+          p_project_id: projectId,
+          p_period_start: periodStart,
+          p_period_end: periodEnd,
+          // Opt-in only: the automatic path after a payment never guesses a
+          // site for vouchers that were generated without one.
+          p_include_unsited: options?.includeUnsited ?? false,
+        }),
+      'The payment is recorded, but its project cost was not posted. Retry from the expense list.'
+    );
+    if (result) await refresh();
+    return (result as PayrollPostingResult | null) ?? null;
   };
 
   // --- TOOLS ACTIONS ---
@@ -1681,6 +1791,7 @@ export const DataStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         getAttendanceForProjectAndDate,
         createPayrollRun,
         updatePayrollStatus,
+        postPayrollExpense,
         createTool,
         updateTool,
         deleteTool,
