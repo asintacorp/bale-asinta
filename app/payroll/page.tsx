@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Check,
   User,
+  Coins,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { FilterSummary } from '@/components/ui/FilterSummary';
@@ -43,6 +44,8 @@ export default function PayrollPage() {
     advances,
     createPayrollRun,
     updatePayrollStatus,
+    postPayrollExpense,
+    isLoaded,
   } = useDataStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -66,7 +69,57 @@ export default function PayrollPage() {
   const [generateProjectId, setGenerateProjectId] = useState<string>('all');
   const [isGenerating, setIsGenerating] = useState(false);
 
+  // "Post to project costs" — the manual path for runs the app could not post
+  // itself (firm-wide runs, or a payment recorded before this feature).
+  const [isPostCostsModalOpen, setIsPostCostsModalOpen] = useState(false);
+  const [postSiteId, setPostSiteId] = useState<string>('all');
+  const [isPosting, setIsPosting] = useState(false);
+  const postLock = React.useRef(false);
+  const pendingPrint = React.useRef(false);
+  const deepLinkApplied = React.useRef(false);
+
   const formatPHP = formatPesoCompact;
+
+  /**
+   * Deep link from the expense ledger:
+   * `/payroll?period_start=…&period_end=…&site=…` scopes this page to the run
+   * that produced the cost, and `print=1` opens the 3×3 slip dialog so printing
+   * keeps living in exactly one place.
+   */
+  useEffect(() => {
+    if (deepLinkApplied.current) return;
+    deepLinkApplied.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const start = params.get('period_start');
+    const end = params.get('period_end');
+    const site = params.get('site');
+
+    if (start) setPeriodStart(start);
+    if (end) setPeriodEnd(end);
+    if (start && end) setPrintDateRange({ start, end });
+    if (site) {
+      setPrintSiteId(site);
+      setGenerateProjectId(site);
+      setProjectFilter(site);
+    }
+    if (params.get('print') === '1') pendingPrint.current = true;
+
+    if (start || end || site) {
+      // Consume the handoff so a refresh or a closed dialog does not replay it.
+      const url = new URL(window.location.href);
+      ['period_start', 'period_end', 'site', 'print'].forEach((key) => url.searchParams.delete(key));
+      window.history.replaceState(null, '', `${url.pathname}${url.search}`);
+    }
+  }, []);
+
+  // Open the print dialog only once the ledger is loaded, otherwise it would
+  // announce "no slips" while data is still arriving.
+  useEffect(() => {
+    if (!pendingPrint.current) return;
+    if (!isLoaded) return;
+    pendingPrint.current = false;
+    setIsPrintAllModalOpen(true);
+  }, [isLoaded]);
 
   /** Chunks an array into groups of `size` (used for 3×3 = 9 slips per A4 page). */
   const chunkBy = <T,>(arr: T[], size: number): T[][] =>
@@ -89,6 +142,10 @@ export default function PayrollPage() {
         )
         .map((a) => a.project_id)
     );
+
+    // The site stamped when the run was generated is authoritative; the rest is
+    // legacy fallback for vouchers created before payroll carried a site.
+    if (pay.project_id) periodProjectIds.add(pay.project_id);
 
     if (pay.notes) {
       projects.forEach((proj) => {
@@ -206,6 +263,49 @@ export default function PayrollPage() {
     (p) => p.period_start === periodStart && p.period_end === periodEnd
   );
 
+  // What "Post to project costs" would write: exactly the paid vouchers of this
+  // site and period, which is what post_payroll_expense() sums server-side.
+  const postSiteVouchers = payroll.filter(
+    (p) => p.project_id === postSiteId && p.period_start === periodStart && p.period_end === periodEnd
+  );
+  const postPaidVouchers = postSiteVouchers.filter((p) => p.status === 'paid');
+  const postGross = postPaidVouchers.reduce((sum, p) => sum + Number(p.gross_pay || 0), 0);
+  const postBale = postPaidVouchers.reduce((sum, p) => sum + Number(p.bale_deduction || 0), 0);
+  const postNet = postPaidVouchers.reduce((sum, p) => sum + Number(p.net_pay || 0), 0);
+  const postReady = postSiteId !== 'all' && postPaidVouchers.length > 0 && postNet > 0;
+  const postSiteName = projects.find((project) => project.id === postSiteId)?.name ?? null;
+
+  const openPostCosts = () => {
+    setPostSiteId(generateProjectId !== 'all' ? generateProjectId : 'all');
+    setIsPostCostsModalOpen(true);
+  };
+
+  const handlePostCosts = async () => {
+    if (postLock.current || !postReady) return;
+    postLock.current = true;
+    setIsPosting(true);
+    try {
+      const result = await postPayrollExpense(postSiteId, periodStart, periodEnd);
+      if (result) {
+        const amount = formatPeso(Number(result.amount ?? postNet));
+        showToast(
+          'success',
+          result.outcome === 'unchanged'
+            ? `${amount} of labor cost was already posted for ${postSiteName || 'this site'}.`
+            : `${amount} posted to ${postSiteName || 'the site'} as labor cost.`
+        );
+        setIsPostCostsModalOpen(false);
+      } else {
+        showToast('error', 'The cost was not posted. Check the site, the period and the paid vouchers, then retry.');
+      }
+    } catch {
+      showToast('error', 'The cost was not posted. Check the site, the period and the paid vouchers, then retry.');
+    } finally {
+      postLock.current = false;
+      setIsPosting(false);
+    }
+  };
+
   const handleGenerateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (generateLock.current) return;
@@ -254,9 +354,17 @@ export default function PayrollPage() {
           title="Payroll"
           description="Review attendance-based vouchers, Bale deductions and worker payslips."
           action={
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button variant="primary" size="md" onClick={() => setIsGenerateModalOpen(true)} leftIcon={<Plus className="w-4 h-4" />}>
                 New Payroll Run
+              </Button>
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={openPostCosts}
+                leftIcon={<Coins className="w-4 h-4" />}
+              >
+                Post to project costs
               </Button>
               <Button
                 variant="secondary"
@@ -690,6 +798,96 @@ export default function PayrollPage() {
             </div>
           );
         })()}
+      </Modal>
+
+      {/* POST TO PROJECT COSTS — manual path for firm-wide or older runs */}
+      <Modal
+        isOpen={isPostCostsModalOpen}
+        onClose={() => { if (!isPosting) setIsPostCostsModalOpen(false); }}
+        title="Post to project costs"
+        description="Records the net released to workers as a labor cost on the site's ledger."
+        maxWidth="lg"
+      >
+        <div className="space-y-4">
+          <Select
+            label="Project site"
+            value={postSiteId}
+            onChange={(e) => setPostSiteId(e.target.value)}
+            disabled={isPosting}
+            options={[
+              { label: 'Choose a site', value: 'all' },
+              ...projects
+                .slice()
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((project) => ({ label: project.name, value: project.id })),
+            ]}
+            hint="A firm-wide run has no site of its own, so choose the site this period belongs to."
+          />
+
+          <div className="rounded-xl border border-surface-border bg-surface-inset/50 p-3 text-sm">
+            <p className="font-semibold text-navy">
+              Period {periodStart} → {periodEnd}
+            </p>
+            <p className="mt-1 text-xs text-ink-secondary">
+              Change the payroll period on the page to post a different run.
+            </p>
+          </div>
+
+          {postSiteId === 'all' ? (
+            <p className="text-xs text-ink-secondary">
+              Choose one site. Every expense in this ledger belongs to a site, so a firm-wide run cannot post a cost.
+            </p>
+          ) : (
+            <dl className="space-y-1 text-sm">
+              <div className="flex justify-between gap-3">
+                <dt className="text-ink-secondary">Vouchers paid</dt>
+                <dd className="font-semibold tabular-nums text-navy">
+                  {postPaidVouchers.length} of {postSiteVouchers.length}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-ink-secondary">Gross wages</dt>
+                <dd className="tabular-nums text-navy">{formatPeso(postGross)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-ink-secondary">Bale recovered</dt>
+                <dd className={`tabular-nums ${postBale > 0 ? 'text-status-danger' : 'text-ink-secondary'}`}>
+                  {postBale > 0 ? `−${formatPeso(postBale)}` : '—'}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3 border-t border-surface-border pt-1">
+                <dt className="font-semibold text-navy">Net to post</dt>
+                <dd className="font-bold tabular-nums text-navy">{formatPeso(postNet)}</dd>
+              </div>
+            </dl>
+          )}
+
+          <p className="text-[11px] leading-relaxed text-ink-muted">
+            Only the net is new money: an advance was already posted as labor when it was released, so the Bale
+            deduction here only recovers it. Posting again refreshes the same expense instead of adding a second one.
+          </p>
+
+          {postSiteId !== 'all' && postPaidVouchers.length === 0 && (
+            <p role="status" className="rounded-xl border border-status-warning/20 bg-status-warning-bg p-3 text-xs text-status-warning">
+              No paid vouchers for this site and period yet. Drafts and approved vouchers are not a cost; mark them paid first.
+            </p>
+          )}
+
+          {postSiteId !== 'all' && postPaidVouchers.length > 0 && postNet <= 0 && (
+            <p role="status" className="rounded-xl border border-status-warning/20 bg-status-warning-bg p-3 text-xs text-status-warning">
+              The net for these vouchers is ₱0, so there is nothing to post.
+            </p>
+          )}
+
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="secondary" size="md" onClick={() => setIsPostCostsModalOpen(false)} disabled={isPosting}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="md" onClick={() => void handlePostCosts()} isLoading={isPosting} disabled={!postReady}>
+              {postNet > 0 ? `Post ${formatPeso(postNet)}` : 'Post to project costs'}
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       {/* PRINT ALL PAYROLL SLIPS — date range picker only (never printed) */}

@@ -10,6 +10,18 @@ import { ExpenseCategory, type Expense, type ExpenseLineItem } from '@/types';
 import { ExpenseItemsEditor } from '@/components/expenses/ExpenseItemsEditor';
 import { ReceiptPhotoViewer } from '@/components/expenses/ReceiptPhotoViewer';
 import { ExpenseDetailsModal } from '@/components/expenses/ExpenseDetailsModal';
+import { ExpenseTotalsStrip } from '@/components/expenses/ExpenseTotalsStrip';
+import {
+  GENERATED_PAYROLL_NOTE_PREFIX,
+  advanceExpenseHref,
+  expenseSourceOf,
+  formatPeriodLabel,
+  isLinkedExpense,
+  payrollExpenseHref,
+  payrollRunBreakdown,
+  summarizeExpenses,
+} from '@/lib/expenses/posting';
+import Link from 'next/link';
 import { loadExpenseDraft, saveExpenseDraft, deleteExpenseDraft } from '@/lib/expenses/draftStore';
 import { stableDraftJson, type SavedDraftPayload, type SavedDraftRow } from '@/lib/expenses/savedDraft';
 import { itemInputs, prepareExpenseItems, type ItemInput } from '@/lib/expenses/items';
@@ -26,6 +38,9 @@ import {
   AlertTriangle,
   ScanLine,
   Info,
+  Lock,
+  Printer,
+  ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { FilterSummary } from '@/components/ui/FilterSummary';
@@ -69,6 +84,8 @@ export default function ExpensesPage() {
     deleteExpense,
     createAdvance,
     workers,
+    advances,
+    payroll,
   } = useDataStore();
   const { showToast } = useToast();
   const supabase = React.useMemo(() => createClient(), []);
@@ -302,13 +319,20 @@ export default function ExpensesPage() {
   // that only changes when the ledger reloads).
   const duplicateLookbackDays = 7;
   const receiptThreshold = 5000;
-  const ledgerDuplicates = React.useMemo(
-    () => findLedgerDuplicates(expenses, { windowDays: duplicateLookbackDays }),
+  // Posted rows (payroll, advances) never carry a receipt photo and are not
+  // duplicates of a typed entry, so the ledger checks stay on what was entered
+  // by hand. Generated rows are verified by their source record instead.
+  const manualExpenses = React.useMemo(
+    () => expenses.filter((expense) => !isLinkedExpense(expense)),
     [expenses]
   );
+  const ledgerDuplicates = React.useMemo(
+    () => findLedgerDuplicates(manualExpenses, { windowDays: duplicateLookbackDays }),
+    [manualExpenses]
+  );
   const missingReceipts = React.useMemo(
-    () => findMissingReceipts(expenses, receiptThreshold),
-    [expenses]
+    () => findMissingReceipts(manualExpenses, receiptThreshold),
+    [manualExpenses]
   );
 
   const filteredExpenses = expenses.filter((exp) => {
@@ -326,6 +350,11 @@ export default function ExpensesPage() {
 
     return matchesSearch && matchesCategory && matchesProject;
   });
+
+  const filteredTotals = React.useMemo(
+    () => summarizeExpenses(filteredExpenses),
+    [filteredExpenses]
+  );
 
   // AI Trigger
   const handleAnalyzeWithAI = async () => {
@@ -895,13 +924,15 @@ export default function ExpensesPage() {
         <WorkspaceHeader
           eyebrow="Project ledger"
           title="Site Expenses"
-          description="Record and review materials, equipment and other site disbursements."
+          description="Record site disbursements; payroll runs and cash advances post here automatically."
           action={
             <Button variant="primary" size="md" onClick={openEntry} leftIcon={<Plus className="w-4 h-4" />}>
               Record Expense
             </Button>
           }
         />
+
+        <ExpenseTotalsStrip totals={filteredTotals} />
 
         {draftLoadState === 'error' && <div role="status" className="rounded-xl border border-status-warning/20 bg-status-warning-bg p-4 text-sm text-status-warning">Saved drafts could not be checked. Refresh before saving a draft; manual expense entry still works.</div>}
         {savedDraft && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/20 bg-surface-inset p-4"><div><p className="text-sm font-bold text-navy">Saved expense draft</p><p className="text-xs text-ink-secondary">{expenses.some(expense => expense.id === savedDraft.draft_id) ? 'This draft matches a recorded expense. Check the ledger before discarding it.' : 'Review before recording. Saving a draft does not add an expense.'}</p></div><div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="secondary" isLoading={isOpeningDraft} onClick={() => void resumeDraft()}>Continue draft</Button><Button type="button" size="sm" variant="ghost" onClick={() => setShowDiscardDraft(true)}>Discard draft</Button></div></div>}
@@ -1098,6 +1129,16 @@ export default function ExpensesPage() {
           <div className="divide-y divide-surface-border/70">
             {filteredExpenses.map((exp) => {
               const proj = projects.find((p) => p.id === exp.project_id);
+              const source = expenseSourceOf(exp);
+              const linked = source !== 'manual';
+              const period = formatPeriodLabel(exp.payroll_period_start, exp.payroll_period_end);
+              const run = source === 'payroll' ? payrollRunBreakdown(payroll, workers, exp) : null;
+              const advance = source === 'advance' ? advances.find((a) => a.id === exp.advance_id) : null;
+              const advanceWorker =
+                source === 'advance'
+                  ? workers.find((w) => w.id === advance?.worker_id)?.name
+                  : null;
+              const printLink = payrollExpenseHref(exp, { print: true });
 
               return (
                 <div
@@ -1111,6 +1152,16 @@ export default function ExpensesPage() {
                       <Badge variant="navy" size="sm" className="capitalize">
                         {exp.category}
                       </Badge>
+                      {source === 'advance' && (
+                        <Badge variant="info" size="sm">
+                          From advance
+                        </Badge>
+                      )}
+                      {source === 'payroll' && (
+                        <Badge variant="info" size="sm">
+                          From payroll
+                        </Badge>
+                      )}
                       {exp.ai_bale_detection && (
                         <Badge variant="warning" size="sm">
                           Worker Bale
@@ -1119,22 +1170,74 @@ export default function ExpensesPage() {
                     </div>
 
                     <div className="text-xs text-ink-secondary">
-                      Site: <span className="font-semibold text-navy">{proj?.name}</span> · Date:{' '}
-                      {exp.expense_date}
-                      {exp.vendor ? (
+                      {source === 'payroll' ? (
                         <>
-                          {' '}
-                          · Supplier: <span className="font-semibold text-navy">{exp.vendor}</span>
+                          {period ? (
+                            <>
+                              Period: <span className="font-semibold text-navy">{period}</span> ·{' '}
+                            </>
+                          ) : null}
+                          {run && run.totalVouchers > 0 ? (
+                            <>
+                              {run.paidVouchers} of {run.totalVouchers} vouchers paid ·{' '}
+                            </>
+                          ) : null}
+                          Date: {exp.expense_date}
                         </>
-                      ) : null}
+                      ) : (
+                        <>
+                          {source === 'advance' ? (
+                            <>
+                              Worker:{' '}
+                              <span className="font-semibold text-navy">{advanceWorker || 'Worker'}</span> ·{' '}
+                            </>
+                          ) : null}
+                          Site: <span className="font-semibold text-navy">{proj?.name}</span> · Date:{' '}
+                          {exp.expense_date}
+                          {exp.vendor ? (
+                            <>
+                              {' '}
+                              · Supplier: <span className="font-semibold text-navy">{exp.vendor}</span>
+                            </>
+                          ) : null}
+                        </>
+                      )}
                     </div>
 
-                    {exp.notes && (
-                      <div className="text-xs text-ink-muted italic">{exp.notes}</div>
+                    {/* Payroll rows state their own arithmetic: only the net is new money. */}
+                    {source === 'payroll' && (
+                      <div className="text-xs text-ink-secondary">
+                        {run && run.rows.length > 0 ? (
+                          <>
+                            Gross {formatPeso(run.gross)} − Bale recovered {formatPeso(run.bale)} = Net
+                            released {formatPeso(exp.amount)}
+                          </>
+                        ) : (
+                          exp.details || null
+                        )}
+                      </div>
                     )}
 
-                    {/* Track C flags, stated with their arithmetic. */}
-                    {(() => {
+                    {source === 'advance' && advance && (
+                      <div className="text-xs text-ink-secondary">
+                        {Number(advance.amount_deducted) > 0 ? (
+                          <>
+                            {formatPeso(Number(advance.amount_deducted))} of{' '}
+                            {formatPeso(Number(advance.amount))} recovered through payroll Bale deductions
+                          </>
+                        ) : (
+                          <>Not yet recovered; payroll Bale deductions will reduce this advance</>
+                        )}
+                      </div>
+                    )}
+
+                    {exp.notes &&
+                      !(source === 'payroll' && exp.notes.startsWith(GENERATED_PAYROLL_NOTE_PREFIX)) && (
+                        <div className="text-xs text-ink-muted italic">{exp.notes}</div>
+                      )}
+
+                    {/* Track C flags, stated with their arithmetic. Only typed rows. */}
+                    {!linked && (() => {
                       const duplicate = ledgerDuplicates.find(
                         (pair) => pair.a.id === exp.id || pair.b.id === exp.id
                       );
@@ -1162,47 +1265,94 @@ export default function ExpensesPage() {
 
                     {/* Entry provenance — states what actually happened. */}
                     <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-ink-secondary">
-                      <span className="inline-flex items-center space-x-1 text-status-success font-semibold bg-status-success-bg px-2 py-0.5 rounded-md border border-status-success/20">
-                        <CheckCircle2 className="w-3 h-3 text-status-success" />
-                        <span>
-                          {/* Requires a recorded suggestion AND confirmation: `ai_confirmed`
-                              was previously hardcoded true, so on its own it would claim
-                              a suggestion was applied to rows that never had one. */}
-                          {exp.ai_category_suggestion && exp.ai_confirmed
-                            ? 'Suggestion applied'
-                            : 'Entered manually'}
+                      {linked ? (
+                        <span className="inline-flex items-center space-x-1 text-status-success font-semibold bg-status-success-bg px-2 py-0.5 rounded-md border border-status-success/20">
+                          <Lock className="w-3 h-3 text-status-success" />
+                          <span>
+                            {source === 'payroll' ? 'Auto-posted on release' : 'Auto-posted on issue'}
+                          </span>
                         </span>
-                      </span>
+                      ) : (
+                        <span className="inline-flex items-center space-x-1 text-status-success font-semibold bg-status-success-bg px-2 py-0.5 rounded-md border border-status-success/20">
+                          <CheckCircle2 className="w-3 h-3 text-status-success" />
+                          <span>
+                            {/* Requires a recorded suggestion AND confirmation: `ai_confirmed`
+                                was previously hardcoded true, so on its own it would claim
+                                a suggestion was applied to rows that never had one. */}
+                            {exp.ai_category_suggestion && exp.ai_confirmed
+                              ? 'Suggestion applied'
+                              : 'Entered manually'}
+                          </span>
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  {/* Right: Amount & Receipt Preview */}
-                  <div className="flex items-center justify-between lg:justify-end space-x-4">
-                    <div className="text-left lg:text-right">
-                      <div className="text-base font-extrabold text-navy">{formatPesoCompact(exp.amount)}</div>
-                      <div className="text-[11px] text-ink-secondary">Disbursed</div>
+                  {/* Right: Amount, actions, and who owns the row */}
+                  <div className="flex flex-col gap-2 lg:items-end">
+                    <div className="flex flex-wrap items-center justify-between gap-3 lg:justify-end lg:gap-4">
+                      <div className="text-left lg:text-right">
+                        <div className="text-base font-extrabold text-navy">
+                          {formatPesoCompact(exp.amount)}
+                        </div>
+                        <div className="text-[11px] text-ink-secondary">Disbursed</div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button variant="secondary" size="sm" onClick={() => setSelectedExpense(exp)}>
+                          View details
+                        </Button>
+
+                        {source === 'advance' && (
+                          <Link href={advanceExpenseHref()}>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              leftIcon={<ExternalLink className="w-3.5 h-3.5 text-navy" />}
+                            >
+                              Open advance
+                            </Button>
+                          </Link>
+                        )}
+
+                        {source === 'payroll' && printLink && (
+                          <Link href={printLink}>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              leftIcon={<Printer className="w-3.5 h-3.5 text-navy" />}
+                            >
+                              Print payslips
+                            </Button>
+                          </Link>
+                        )}
+
+                        {!linked && (
+                          <Button variant="danger" size="sm" onClick={() => handleDeleteExpense(exp)}>
+                            Delete
+                          </Button>
+                        )}
+
+                        {exp.receipt_url ? (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            isLoading={isLoadingReceipt}
+                            onClick={() => openReceiptPreview(exp.receipt_url!)}
+                            leftIcon={<ImageIcon className="w-3.5 h-3.5 text-navy" />}
+                          >
+                            Receipt Photo
+                          </Button>
+                        ) : linked ? null : (
+                          <span className="text-xs text-ink-muted italic px-2">No photo</span>
+                        )}
+                      </div>
                     </div>
 
-                    <Button variant="secondary" size="sm" onClick={() => setSelectedExpense(exp)}>View details</Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      onClick={() => handleDeleteExpense(exp)}
-                    >
-                      Delete
-                    </Button>
-                    {exp.receipt_url ? (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        isLoading={isLoadingReceipt}
-                        onClick={() => openReceiptPreview(exp.receipt_url)}
-                        leftIcon={<ImageIcon className="w-3.5 h-3.5 text-navy" />}
-                      >
-                        Receipt Photo
-                      </Button>
-                    ) : (
-                      <span className="text-xs text-ink-muted italic px-2">No photo</span>
+                    {linked && (
+                      <p className="text-[10px] text-ink-muted lg:text-right">
+                        Locked — managed by {source === 'payroll' ? 'payroll' : 'advances'}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -1652,7 +1802,14 @@ export default function ExpensesPage() {
         }}
       />
 
-      <ExpenseDetailsModal expense={selectedExpense} projects={projects} onClose={() => setSelectedExpense(null)} onUpdate={updateExpense} onReceipt={path => { void openReceiptPreview(path); }} />
+      <ExpenseDetailsModal
+        expense={selectedExpense}
+        projects={projects}
+        payrollRun={selectedExpense ? payrollRunBreakdown(payroll, workers, selectedExpense) : null}
+        onClose={() => setSelectedExpense(null)}
+        onUpdate={updateExpense}
+        onReceipt={path => { void openReceiptPreview(path); }}
+      />
 
       <ReceiptPhotoViewer isOpen={Boolean(selectedReceiptUrl)} src={selectedReceiptUrl} onClose={() => setSelectedReceiptUrl(null)} />
 

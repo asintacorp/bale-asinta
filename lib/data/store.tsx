@@ -22,6 +22,7 @@ import {
   User,
   ExpenseCategory,
   AttendanceStatus,
+  PayrollPostingResult,
 } from '@/types';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth/authContext';
@@ -128,7 +129,11 @@ interface DataStoreContextType {
    * server-side: one expense per project + period, so calling it again after
    * more vouchers were paid updates the same row.
    */
-  postPayrollExpense: (projectId: string, periodStart: string, periodEnd: string) => Promise<boolean>;
+  postPayrollExpense: (
+    projectId: string,
+    periodStart: string,
+    periodEnd: string
+  ) => Promise<PayrollPostingResult | null>;
 
   // Tool Actions
   createTool: (data: Omit<Tool, 'id' | 'created_at'>) => Promise<Tool | null>;
@@ -882,6 +887,7 @@ export const DataStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     'advance_id',
     'payroll_period_start',
     'payroll_period_end',
+    'line_items',
     'removed_at',
   ];
 
@@ -1544,7 +1550,7 @@ export const DataStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     projectId: string,
     periodStart: string,
     periodEnd: string
-  ): Promise<boolean> => {
+  ): Promise<PayrollPostingResult | null> => {
     const result = await runMutation(
       'Post payroll to project costs',
       (db) =>
@@ -1556,7 +1562,7 @@ export const DataStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       'The payment is recorded, but its project cost was not posted. Retry from the expense list.'
     );
     if (result) await refresh();
-    return Boolean(result);
+    return (result as PayrollPostingResult | null) ?? null;
   };
 
   // --- TOOLS ACTIONS ---

@@ -90,6 +90,17 @@ export interface ExpenseLineItem {
  */
 export type ExpenseSource = 'manual' | 'payroll' | 'advance';
 
+/** What `post_payroll_expense()` reports back after a posting attempt. */
+export interface PayrollPostingResult {
+  outcome: 'created' | 'updated' | 'unchanged' | 'already_posted';
+  expense_id?: string;
+  amount: number;
+  gross?: number;
+  bale_recovered?: number;
+  net_released?: number;
+  vouchers?: number;
+}
+
 export interface Expense {
   id: string;
   project_id: string;
