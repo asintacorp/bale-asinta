@@ -768,6 +768,12 @@ export default function PayrollPage() {
                               <dd>{formatPeso(pay.net_pay)}</dd>
                             </div>
                           </dl>
+                          {/* Signed by the architect only — workers do not sign these slips. */}
+                          <div className="pp-sign">
+                            <span className="pp-sign-line" aria-hidden="true" />
+                            <span className="pp-sign-name">Ar. Junel Buyagon</span>
+                            <span className="pp-sign-title">Principal Architect</span>
+                          </div>
                         </article>
                       );
                     })}
@@ -915,6 +921,28 @@ export default function PayrollPage() {
           }
           #payroll-slips-print-root .pp-row--net dt { font-weight: 700; color: #0B1F3A; }
           #payroll-slips-print-root .pp-row--net dd { font-size: 10.5pt; }
+
+          /* Architect signature block: a rule to sign on, then the signatory. */
+          #payroll-slips-print-root .pp-sign { margin-top: 5mm; }
+          #payroll-slips-print-root .pp-sign-line {
+            display: block;
+            width: 32mm;
+            border-top: 0.3mm solid #0B1F3A;
+          }
+          #payroll-slips-print-root .pp-sign-name {
+            display: block;
+            margin-top: 1.2mm;
+            font-size: 7.5pt;
+            font-weight: 700;
+            line-height: 1.2;
+            color: #0B1F3A;
+          }
+          #payroll-slips-print-root .pp-sign-title {
+            display: block;
+            font-size: 6.5pt;
+            line-height: 1.2;
+            color: #4E5A6B;
+          }
 
           /* Anything marked .no-print or .print-hide never reaches paper. */
           .no-print, .print-hide { display: none !important; }
